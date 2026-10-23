@@ -1,0 +1,101 @@
+promtps/
+venv/
+.env
+__pycache__/
+prompts/
+.env*
+node_modules/
+random-documentation/
+
+.clangd
+
+# ----------------------------
+# Build directories
+# ----------------------------
+build/
+cmake-build-*/
+out/
+bin/
+dist/
+
+# If you accidentally built in-source earlier
+src/**/build/
+
+# ----------------------------
+# CMake generated files
+# ----------------------------
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+compile_commands.json
+CTestTestfile.cmake
+Testing/
+
+# ----------------------------
+# Compiled binaries & objects
+# ----------------------------
+*.o
+*.obj
+*.lo
+*.a
+*.so
+*.so.*
+*.dll
+*.dylib
+*.exe
+*.out
+*.app
+
+# ----------------------------
+# Debug / profiling
+# ----------------------------
+*.gcda
+*.gcno
+*.gcov
+*.prof
+*.gprof
+
+# ----------------------------
+# Editor / IDE
+# ----------------------------
+
+# VS Code
+.vscode/
+
+.cursor/
+
+# CLion / JetBrains
+.idea/
+
+# Vim
+*.swp
+*.swo
+
+# ----------------------------
+# OS junk
+# ----------------------------
+.DS_Store
+Thumbs.db
+
+# ----------------------------
+# Logs
+# ----------------------------
+*.log
+
+# ----------------------------
+# Temporary files
+# ----------------------------
+tmp/
+temp/
+.cache/
+
+# ----------------------------
+# Package managers (if added later)
+# ----------------------------
+conanbuild/
+conaninfo.txt
+conan.lock
+
+# vcpkg
+vcpkg_installed/
