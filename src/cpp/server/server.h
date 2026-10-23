@@ -3,8 +3,12 @@
 
 class TinyBinServer {
     public:
-        TinyBinServer();
+        TinyBinServer(int port, int num_workers);
         void start();
+
+    private:
+        int port;
+        int num_workers;
 };
 
 #endif
