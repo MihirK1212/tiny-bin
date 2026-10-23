@@ -5,6 +5,6 @@ class TinyBinServer {
     public:
         TinyBinServer();
         void start();
-}
+};
 
 #endif
