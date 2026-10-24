@@ -140,11 +140,11 @@ struct Connection {
         return ReadResponse{true, data};
     }
 
-    void enqueue_response(std::vector<uint8_t> data) {
+    void enqueue_response(const std::vector<uint8_t> &data) {
         uint32_t len = htonl(data.size());
         buf_append(outgoing_bytes, (const uint8_t *)&len, 4);
         buf_append(outgoing_bytes, data.data(), data.size());
-        want_read = false;
+        want_read  = false;
         want_write = true;
     }
 
