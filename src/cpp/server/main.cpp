@@ -12,7 +12,7 @@ int main(int argc, char* argv[])  {
 
     options.add_options()
         ("p,port", "Port", cxxopts::value<int>())
-        ("nw,num_workers", "Number of workers", cxxopts::value<int>());
+        ("n,num_workers", "Number of workers", cxxopts::value<int>());
 
     auto result = options.parse(argc, argv);
 
@@ -39,7 +39,10 @@ int main(int argc, char* argv[])  {
         num_workers = std::max<int>(1, std::thread::hardware_concurrency());
     }
 
-    TinyBinServer server(port, num_workers);
-    server.start();
+    Server server(port, num_workers);
+    server.start_workers();
+    server.block_until_shutdown();
+    server.stop_workers();
+    server.join_workers();
     return 0;
 }
