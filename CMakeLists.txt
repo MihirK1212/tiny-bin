@@ -31,6 +31,7 @@ FetchContent_MakeAvailable(cxxopts)
 
 # ---- Server library ----
 add_library(server
+    src/cpp/server/socket_utils.cpp
     src/cpp/server/server.cpp
     src/cpp/server/worker.cpp
     src/cpp/server/event_loop.cpp

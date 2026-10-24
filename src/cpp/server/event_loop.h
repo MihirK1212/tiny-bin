@@ -13,8 +13,8 @@ class EventLoop {
     
     private:
         int server_fd;
-        
-        std::atomic<bool> running{false};
+
+        std::atomic<bool> running{true};
 };
 
 #endif

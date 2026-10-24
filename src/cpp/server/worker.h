@@ -18,8 +18,12 @@ class Worker {
         int id;
         int port;
 
+        int server_fd;
+
         std::unique_ptr<EventLoop> event_loop;
         std::thread thread;
+
+        void setup_event_loop();
 
         void run();
 };
