@@ -1,0 +1,205 @@
+#ifndef CONNECTION_H
+#define CONNECTION_H
+
+#include <cassert>
+#include <cerrno>
+#include <cstddef>
+#include <cstdint>
+#include <sys/types.h>
+#include <vector>
+#include <asm-generic/socket.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netdb.h>
+#include <arpa/inet.h>
+#include <cstring>
+#include <netinet/tcp.h> 
+#include <fcntl.h>
+#include <poll.h>
+#include <sys/socket.h>
+#include <stdio.h>
+#include <netinet/ip.h>
+#include <sys/poll.h>
+#include <unistd.h>
+#include <optional>
+#include <utility>
+
+#include "socket_utils.h"
+
+const size_t k_max_msg = 32 << 20; 
+const size_t k_idle_buf_cap = 64 * 1024;
+
+struct ReadResponse {
+    bool success;
+    std::optional<std::vector<uint8_t>> data;
+};
+
+
+struct Connection {
+    int fd = -1;
+    
+    bool want_read = false; // there is something in  the connection that needs to be read by event loop
+    bool want_write = false; // something needs to be written to the connection 
+    bool want_close = false;
+    bool read_eof = false;
+
+    std::vector<uint8_t> incoming_bytes; // bytes received from the connection
+    std::vector<uint8_t> outgoing_bytes; // bytes to be written into the connection
+
+    std::vector<ReadResponse> handle_read() {
+        /*
+            - keep filling data into the `incoming_bytes` buffer
+            - after ever fill, do `try_one_request()` to see if we have valid request data
+            - inside each `try_one_request`, process one valid request and then remove its data from the incoming buffer 
+        */
+
+        uint8_t data[64*1024];
+        ssize_t rv = 0;
+        do {
+            rv = read(fd, data, sizeof(data));
+        } while (rv < 0 && errno == EINTR);
+
+        if (rv < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            return {};
+        }
+        if (rv < 0) {
+            want_close = true;
+            return {};
+        }
+        if (rv == 0) {
+            // A peer may finish sending while it is still waiting for replies.
+            read_eof = true;
+            want_read = false;
+            want_close = outgoing_bytes.empty();
+            return {};
+        }
+
+        size_t len = (size_t)rv;
+        buf_append(incoming_bytes, data, len);
+
+        std::vector<ReadResponse> responses;
+
+        while(!want_close) {
+            ReadResponse response = try_one_request();
+            if(!response.success || !response.data.has_value()) {
+                break;
+            }
+            responses.push_back(std::move(response));
+        }
+        
+        return responses;
+    }
+
+    void handle_write() {
+        assert(outgoing_bytes.size() > 0);
+
+        ssize_t rv = 0;
+        do {
+            rv = write(fd, outgoing_bytes.data(), outgoing_bytes.size());
+        } while (rv < 0 && errno == EINTR);
+
+        if(rv < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            return; // actually not ready
+        }
+        if(rv < 0) {
+            want_close = true;
+            return;
+        }
+
+        buf_consume(outgoing_bytes, (size_t)rv);
+
+        if(outgoing_bytes.size() < k_max_msg && !want_close && !read_eof) {
+            want_read = true;
+        }
+        if(outgoing_bytes.size() == 0) {
+            want_write = false;
+            if (read_eof) {
+                want_close = true;
+            }
+        }
+    }
+
+    ReadResponse try_one_request() {
+        /*
+            for now, assume that message is of the following format:
+            4 bytes -> len of message
+            followed by
+            `len` bytes -> actual message        
+        */
+
+        if(incoming_bytes.size() < 4) {
+            return ReadResponse{false, std::nullopt};
+        }
+
+        uint32_t len_network = 0;
+        memcpy(&len_network, incoming_bytes.data(), 4);
+        uint32_t len = ntohl(len_network);
+
+        if(len > k_max_msg) {
+            want_close = true;
+            return ReadResponse{false, std::nullopt};
+        }
+
+        if(incoming_bytes.size() < (4 + len)) {
+            return ReadResponse{false, std::nullopt};
+        }
+
+        // store the response in a vector
+        std::vector<uint8_t> data(incoming_bytes.begin() + 4,
+                                  incoming_bytes.begin() + 4 + len);
+
+        // remove message from incoming
+        buf_consume(incoming_bytes, 4 + len);
+
+        return ReadResponse{true, std::move(data)};
+    }
+
+    void enqueue_response(const std::vector<uint8_t> &data) {
+        uint32_t len = htonl(data.size());
+        buf_append(outgoing_bytes, (const uint8_t *)&len, 4);
+        buf_append(outgoing_bytes, data.data(), data.size());
+        if (outgoing_bytes.size() >= k_max_msg) {
+            want_read = false;
+        }
+        want_write = true;
+    }
+
+    static Connection* handle_accept(int server_fd) {
+        sockaddr_in client_addr = {};
+        socklen_t addrlen = sizeof(client_addr);
+
+        int connfd = accept(server_fd, (struct sockaddr *)&client_addr, &addrlen);
+        if(connfd < 0) {
+            return NULL;
+        }
+
+        if (!set_nonblocking(connfd)) {
+            int error = errno;
+            close(connfd);
+            errno = error;
+            return NULL;
+        }
+
+        Connection* conn = new Connection();
+        conn->fd = connfd;
+        conn->want_read = true;
+        return conn;
+    }
+
+    static void buf_append(std::vector<uint8_t> &buf, const uint8_t *data, size_t len) {
+        buf.insert(buf.end(), data, data + len);
+    }
+
+    static void buf_consume(std::vector<uint8_t> &buf, size_t n) {
+        buf.erase(buf.begin(), buf.begin() + n);
+        
+        // buf erase doesnt free up capacity so we do it explicitly
+        if (buf.empty() && buf.capacity() > k_idle_buf_cap) {
+            buf.shrink_to_fit();
+        }
+    }
+};
+
+#endif
