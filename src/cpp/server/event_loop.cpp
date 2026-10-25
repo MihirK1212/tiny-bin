@@ -81,33 +81,28 @@ void EventLoop::run() {
             if(ready & POLLIN) {
                 assert(conn->want_read);
                 std::vector<ReadResponse> requests = conn->handle_read();
-                for(ReadResponse& request: requests) {
-                    if(!request.success) {
-                        continue;
-                    }
-                    if(!request.data.has_value()) {
-                        continue;
-                    }
+                if (!conn->want_close) {
+                    for(ReadResponse& request: requests) {
+                        if(!request.success || !request.data.has_value()) {
+                            continue;
+                        }
 
-                    const std::vector<uint8_t>& request_data = request.data.value();
+                        const std::vector<uint8_t>& request_data = request.data.value();
 
-                    std::cout << "Server received: ";
-                    for(uint32_t byte : request_data) {
-                        std::cout << (char)byte << " ";
+                        std::cout << "Server received: ";
+                        for(uint32_t byte : request_data) {
+                            std::cout << (char)byte << " ";
+                        }
+                        std::cout << std::endl;
+
+                        std::vector<uint8_t> response_data;
+                        response_data.reserve(6 + request_data.size());
+                        response_data.insert(response_data.end(), {'P', 'O', 'N', 'G', ':', ' '});
+                        response_data.insert(response_data.end(), request_data.begin(), request_data.end());
+                        
+                        // echo response
+                        conn->enqueue_response(response_data);
                     }
-                    std::cout << std::endl;
-
-                    std::vector<uint8_t> response_data;
-                    response_data.push_back('P');
-                    response_data.push_back('O');
-                    response_data.push_back('N');
-                    response_data.push_back('G');
-                    response_data.push_back(':');
-                    response_data.push_back(' ');
-                    response_data.insert(response_data.end(), request_data.begin(), request_data.end());
-                    
-                    // echo response
-                    conn->enqueue_response(response_data);
                 }
             }
 

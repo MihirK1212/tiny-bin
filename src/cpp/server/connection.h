@@ -24,10 +24,12 @@
 #include <sys/poll.h>
 #include <unistd.h>
 #include <optional>
+#include <utility>
 
 #include "socket_utils.h"
 
 const size_t k_max_msg = 32 << 20; 
+const size_t k_idle_buf_cap = 64 * 1024;
 
 struct ReadResponse {
     bool success;
@@ -53,15 +55,15 @@ struct Connection {
         */
 
         uint8_t data[64*1024];
-        ssize_t rv = read(fd, data, sizeof(data));
-        if (rv<0 && errno == EAGAIN) {
+        ssize_t rv = 0;
+        do {
+            rv = read(fd, data, sizeof(data));
+        } while (rv < 0 && errno == EINTR);
+
+        if (rv < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
             return {};
         }
-        if (rv == 0) {
-            want_close = true;
-            return {};
-        }
-        if (rv < 0) {
+        if (rv <= 0) {
             want_close = true;
             return {};
         }
@@ -71,12 +73,12 @@ struct Connection {
 
         std::vector<ReadResponse> responses;
 
-        while(true) {
+        while(!want_close) {
             ReadResponse response = try_one_request();
             if(!response.success || !response.data.has_value()) {
                 break;
             }
-            responses.push_back(response);
+            responses.push_back(std::move(response));
         }
         
         return responses;
@@ -85,9 +87,12 @@ struct Connection {
     void handle_write() {
         assert(outgoing_bytes.size() > 0);
 
-        ssize_t rv = write(fd, outgoing_bytes.data(), outgoing_bytes.size());
+        ssize_t rv = 0;
+        do {
+            rv = write(fd, outgoing_bytes.data(), outgoing_bytes.size());
+        } while (rv < 0 && errno == EINTR);
 
-        if(rv<0 && errno == EAGAIN) {
+        if(rv < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
             return; // actually not ready
         }
         if(rv < 0) {
@@ -97,8 +102,10 @@ struct Connection {
 
         buf_consume(outgoing_bytes, (size_t)rv);
 
-        if(outgoing_bytes.size() == 0) {
+        if(outgoing_bytes.size() < k_max_msg && !want_close) {
             want_read = true;
+        }
+        if(outgoing_bytes.size() == 0) {
             want_write = false;
         }
     }
@@ -137,14 +144,16 @@ struct Connection {
         // remove message from incoming
         buf_consume(incoming_bytes, 4 + len);
 
-        return ReadResponse{true, data};
+        return ReadResponse{true, std::move(data)};
     }
 
     void enqueue_response(const std::vector<uint8_t> &data) {
         uint32_t len = htonl(data.size());
         buf_append(outgoing_bytes, (const uint8_t *)&len, 4);
         buf_append(outgoing_bytes, data.data(), data.size());
-        want_read  = false;
+        if (outgoing_bytes.size() >= k_max_msg) {
+            want_read = false;
+        }
         want_write = true;
     }
 
@@ -169,8 +178,13 @@ struct Connection {
         buf.insert(buf.end(), data, data + len);
     }
 
-    static void buf_consume(std::vector<uint8_t> &buf, int n) {
+    static void buf_consume(std::vector<uint8_t> &buf, size_t n) {
         buf.erase(buf.begin(), buf.begin() + n);
+        
+        // buf erase doesnt free up capacity so we do it explicitly
+        if (buf.empty() && buf.capacity() > k_idle_buf_cap) {
+            buf.shrink_to_fit();
+        }
     }
 };
 
