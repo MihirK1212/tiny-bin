@@ -41,10 +41,10 @@ void EventLoop::run() {
 
             struct pollfd client_pfd = {conn->fd, 0, 0};
 
-            if(conn->want_read) {
+            if(conn->wants_read()) {
                 client_pfd.events |= POLLIN;
             }
-            if(conn->want_write) {
+            if(conn->wants_write()) {
                 client_pfd.events |= POLLOUT;
             }
 
@@ -79,10 +79,10 @@ void EventLoop::run() {
             Connection* conn = fd2conn[poll_args[i].fd];
 
             // a hangup can still leave buffered input to read before EOF.
-            if(conn->want_read && (ready & (POLLIN | POLLHUP))) {
-                assert(conn->want_read);
+            if(conn->wants_read() && (ready & (POLLIN | POLLHUP))) {
+                assert(conn->wants_read());
                 std::vector<ReadResponse> requests = conn->handle_read();
-                if (!conn->want_close) {
+                if (!conn->wants_close()) {
                     for(ReadResponse& request: requests) {
                         if(!request.success || !request.data.has_value()) {
                             continue;
@@ -104,17 +104,22 @@ void EventLoop::run() {
                         // echo response
                         conn->enqueue_response(response_data);
                     }
+                    conn->mark_read_complete();
                 }
             }
 
-            if(!conn->want_close && conn->want_write && (ready & (POLLOUT | POLLHUP))) {
-                assert(conn->want_write);
+            if(!conn->wants_close() && conn->wants_write() && (ready & (POLLOUT | POLLHUP))) {
+                assert(conn->wants_write());
                 conn->handle_write();
             }
 
-            if ((ready & POLLERR) || conn->want_close) {
-                close(conn->fd);
-                fd2conn[conn->fd] = NULL;
+            if ((ready & POLLERR) || conn->wants_close()) {
+                int fd = conn->fd;
+                if (!conn->wants_close()) {
+                    conn->request_close();
+                }
+                conn->close_connection();
+                fd2conn[fd] = NULL;
                 delete conn;
             }
         }
@@ -123,7 +128,12 @@ void EventLoop::run() {
     // cleanup remaining connections on shutdown
     for (Connection* conn : fd2conn) {
         if (conn) {
-            close(conn->fd);
+            if (conn->get_state() != ConnectionState::CLOSED) {
+                if (!conn->wants_close()) {
+                    conn->request_close();
+                }
+                conn->close_connection();
+            }
             delete conn;
         }
     }
