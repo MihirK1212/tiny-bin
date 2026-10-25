@@ -13,13 +13,18 @@
 #include <cstring>
 #include <netinet/tcp.h> 
 #include <fcntl.h>
+#include <unistd.h>
 
 
 int create_socket_and_bind(uint16_t port)
 {
     int fd = get_new_socket_id();
     set_socket_options(fd);
-    set_nonblocking(fd);
+    if (!set_nonblocking(fd)) {
+        int error = errno;
+        close(fd);
+        throw std::system_error(error, std::generic_category(), "set_nonblocking");
+    }
 
     sockaddr_in server_addr = get_socket_addr(port);
 
@@ -55,11 +60,21 @@ void set_socket_options(int fd)
     setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &val, sizeof(val));  // disable nagle
 }
 
-void set_nonblocking(int fd)
+bool set_nonblocking(int fd)
 {
-    int flags = fcntl(fd, F_GETFL, 0);  // get the flags
-    flags |= O_NONBLOCK;                // modify the flags
-    fcntl(fd, F_SETFL, flags); 
+    int flags;
+    do {
+        flags = fcntl(fd, F_GETFL, 0);
+    } while (flags < 0 && errno == EINTR);
+    if (flags < 0) {
+        return false;
+    }
+
+    int rv;
+    do {
+        rv = fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+    } while (rv < 0 && errno == EINTR);
+    return rv == 0;
 }
 
 sockaddr_in get_socket_addr(uint16_t port)

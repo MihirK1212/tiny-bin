@@ -9,7 +9,7 @@
 
 int create_socket_and_bind(uint16_t port);
 
-void set_nonblocking(int fd);
+bool set_nonblocking(int fd);
 
 /*
 Private helpers

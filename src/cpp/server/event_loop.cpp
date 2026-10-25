@@ -78,7 +78,8 @@ void EventLoop::run() {
 
             Connection* conn = fd2conn[poll_args[i].fd];
 
-            if(ready & POLLIN) {
+            // a hangup can still leave buffered input to read before EOF.
+            if(conn->want_read && (ready & (POLLIN | POLLHUP))) {
                 assert(conn->want_read);
                 std::vector<ReadResponse> requests = conn->handle_read();
                 if (!conn->want_close) {
@@ -106,12 +107,12 @@ void EventLoop::run() {
                 }
             }
 
-            if(!conn->want_close && (ready & POLLOUT)) {
+            if(!conn->want_close && conn->want_write && (ready & (POLLOUT | POLLHUP))) {
                 assert(conn->want_write);
                 conn->handle_write();
             }
 
-            if ((ready & POLLERR) || (ready & POLLHUP) || conn->want_close) {
+            if ((ready & POLLERR) || conn->want_close) {
                 close(conn->fd);
                 fd2conn[conn->fd] = NULL;
                 delete conn;

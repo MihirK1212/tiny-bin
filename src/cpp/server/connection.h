@@ -43,6 +43,7 @@ struct Connection {
     bool want_read = false; // there is something in  the connection that needs to be read by event loop
     bool want_write = false; // something needs to be written to the connection 
     bool want_close = false;
+    bool read_eof = false;
 
     std::vector<uint8_t> incoming_bytes; // bytes received from the connection
     std::vector<uint8_t> outgoing_bytes; // bytes to be written into the connection
@@ -63,8 +64,15 @@ struct Connection {
         if (rv < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
             return {};
         }
-        if (rv <= 0) {
+        if (rv < 0) {
             want_close = true;
+            return {};
+        }
+        if (rv == 0) {
+            // A peer may finish sending while it is still waiting for replies.
+            read_eof = true;
+            want_read = false;
+            want_close = outgoing_bytes.empty();
             return {};
         }
 
@@ -102,11 +110,14 @@ struct Connection {
 
         buf_consume(outgoing_bytes, (size_t)rv);
 
-        if(outgoing_bytes.size() < k_max_msg && !want_close) {
+        if(outgoing_bytes.size() < k_max_msg && !want_close && !read_eof) {
             want_read = true;
         }
         if(outgoing_bytes.size() == 0) {
             want_write = false;
+            if (read_eof) {
+                want_close = true;
+            }
         }
     }
 
@@ -135,11 +146,9 @@ struct Connection {
             return ReadResponse{false, std::nullopt};
         }
 
-        const uint8_t *read_data = &incoming_bytes[4];
-
         // store the response in a vector
-        std::vector<uint8_t> data(len);
-        memcpy(data.data(), read_data, len);
+        std::vector<uint8_t> data(incoming_bytes.begin() + 4,
+                                  incoming_bytes.begin() + 4 + len);
 
         // remove message from incoming
         buf_consume(incoming_bytes, 4 + len);
@@ -166,7 +175,12 @@ struct Connection {
             return NULL;
         }
 
-        set_nonblocking(connfd);
+        if (!set_nonblocking(connfd)) {
+            int error = errno;
+            close(connfd);
+            errno = error;
+            return NULL;
+        }
 
         Connection* conn = new Connection();
         conn->fd = connfd;
