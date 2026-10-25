@@ -72,17 +72,25 @@ void EventLoop::run() {
         // handle client connection sockets
         for(size_t i=1; i < poll_args.size(); i++) {
             uint32_t ready = poll_args[i].revents;
-            if(ready == 0) {
-                continue;
-            }
 
             Connection* conn = fd2conn[poll_args[i].fd];
-
-            // a hangup can still leave buffered input to read before EOF.
+            
+            // READ
             if(conn->wants_read() && (ready & (POLLIN | POLLHUP))) {
                 assert(conn->wants_read());
-                std::vector<ReadResponse> requests = conn->handle_read();
-                if (!conn->wants_close()) {
+                conn->read_from_socket();
+            }
+
+            // check if socket doesnt need read but incoming buffer is not empty
+            if(conn->wants_read()) {
+                conn->check_remaining_incoming_buffer();
+            }
+
+            // PARSE
+            if (!conn->wants_close() && conn->wants_parse()) {
+                std::vector<ReadResponse> requests = conn->parse_incoming_buffer();
+
+                if(conn->wants_processing()) {
                     for(ReadResponse& request: requests) {
                         if(!request.success || !request.data.has_value()) {
                             continue;
@@ -104,16 +112,19 @@ void EventLoop::run() {
                         // echo response
                         conn->enqueue_response(response_data);
                     }
-                    conn->mark_read_complete();
+
+                    conn->mark_processing_complete();
                 }
             }
 
+            // WRITE
             if(!conn->wants_close() && conn->wants_write() && (ready & (POLLOUT | POLLHUP))) {
                 assert(conn->wants_write());
-                conn->handle_write();
+                conn->write_to_socket();
             }
 
-            if ((ready & POLLERR) || conn->wants_close()) {
+            // CLOSE
+            if ((ready & (POLLERR | POLLNVAL)) || conn->wants_close()) {
                 int fd = conn->fd;
                 if (!conn->wants_close()) {
                     conn->request_close();
