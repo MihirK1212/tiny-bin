@@ -1,6 +1,9 @@
 #ifndef SERVER_HTTP_PARSE_H
 #define SERVER_HTTP_PARSE_H
 
+#include "parse_utils.h"
+#include "request.h"
+
 #include <algorithm>
 #include <cctype>
 #include <cstddef>
@@ -14,126 +17,58 @@
 const size_t k_max_header_bytes = 8 * 1024;
 const size_t k_max_body_bytes = 16 * 1024;
 
-struct HTTPRequest {
-    bool success = false;
-    bool invalid_request = false;
-    size_t bytes_consumed = 0;
-
-    std::string method;
-    std::string path;
-    std::string query;
-    std::string version;
-    std::unordered_map<std::string, std::string> headers;
-    std::vector<uint8_t> body;
-
-    static HTTPRequest make_incomplete() {
-        return HTTPRequest{false, false, 0, {}, {}, {}, {}, {}, {}};
-    }
-
-    static HTTPRequest make_invalid() {
-        return HTTPRequest{false, true, 0, {}, {}, {}, {}, {}, {}};
-    }
-
-    std::string to_string() const {
-        std::string out = method + " " + path;
-        if (!query.empty()) {
-            out += "?" + query;
-        }
-        out += " " + version;
-        for (const auto& [k, v] : headers) {
-            out += " " + k + ":" + v;
-        }
-        if (!body.empty()) {
-            out += " ";
-            out.append(reinterpret_cast<const char*>(body.data()), body.size());
-        }
-        return out;
-    }
-};
-
-namespace detail {
-
-inline bool is_tchar(unsigned char c) {
-    if (std::isalnum(c)) {
-        return true;
-    }
-    switch (c) {
-        case '!': case '#': case '$': case '%': case '&':
-        case '\'': case '*': case '+': case '-': case '.':
-        case '^': case '_': case '`': case '|': case '~':
-            return true;
-        default:
-            return false;
-    }
-}
-
-inline bool is_valid_token(std::string_view s) {
-    if (s.empty()) {
-        return false;
-    }
-    for (unsigned char c : s) {
-        if (!is_tchar(c)) {
-            return false;
-        }
-    }
-    return true;
-}
-
-inline bool has_forbidden_target_chars(std::string_view s) {
-    for (unsigned char c : s) {
-        if (c <= 0x20 || c == 0x7F) {
-            return true;
-        }
-    }
-    return false;
-}
-
-inline bool is_valid_field_value(std::string_view s) {
-    for (unsigned char c : s) {
-        if ((c < 0x20 && c != '\t') || c == 0x7F) {
-            return false;
-        }
-    }
-    return true;
-}
-
-inline std::string_view trim_ows(std::string_view s) {
-    size_t start = 0;
-    while (start < s.size() && (s[start] == ' ' || s[start] == '\t')) {
-        start++;
-    }
-    size_t end = s.size();
-    while (end > start && (s[end - 1] == ' ' || s[end - 1] == '\t')) {
-        end--;
-    }
-    return s.substr(start, end - start);
-}
-
-} // namespace detail
-
 inline HTTPRequest parse_one_request(const std::vector<uint8_t>& incoming_bytes) {
     if (incoming_bytes.empty()) {
         return HTTPRequest::make_incomplete();
     }
 
+    /*
+    for the request:
+        GET /api/v1/pastes?id=123 HTTP/1.1\r\n
+        Host: localhost\r\n
+        \r\n
+    - the header is: "GET /api/v1/pastes?id=123 HTTP/1.1\r\nHost: localhost\r\n"
+        - the request line is: "GET /api/v1/pastes?id=123 HTTP/1.1"
+    - the body is empty 
+
+    for the request: 
+        POST /paste HTTP/1.1\r\n
+        Host: localhost\r\n
+        Content-Length: 11\r\n
+        \r\n
+        hello world 
+    - the header is: "POST /paste HTTP/1.1\r\nHost: localhost\r\nContent-Length: 11\r\n" 
+        - the request line is: "POST /paste HTTP/1.1" 
+    - the body is: "hello world" 
+    
+    HEADER:
+        - from begginning to first occurrence of "\r\n\r\n"  (after this we have the body)
+        - the first line is the request line (up to the first \r\n)
+        - request line conssts of method, target (path) and version split by a space
+        - eg:- one request line: "GET /api/v1/pastes?id=123 HTTP/1.1\r\n
+        - the target (path) can also have a query string, which is the part after the ?
+
+    */ 
+
+    // search for the first occurrence of "\r\n\r\n" in the incoming bytes 
     const uint8_t k_crlf2[4] = {'\r', '\n', '\r', '\n'};
     const size_t search_limit = std::min(incoming_bytes.size(), k_max_header_bytes);
-
-    auto end_it = std::search(
+    
+    auto crlf_first_iter = std::search(
         incoming_bytes.begin(),
         incoming_bytes.begin() + search_limit,
         std::begin(k_crlf2),
         std::end(k_crlf2)
     );
 
-    if (end_it == incoming_bytes.begin() + search_limit) {
+    if (crlf_first_iter == incoming_bytes.begin() + search_limit) {
         if (incoming_bytes.size() >= k_max_header_bytes) {
             return HTTPRequest::make_invalid();
         }
         return HTTPRequest::make_incomplete();
     }
 
-    const size_t header_end_pos = static_cast<size_t>(std::distance(incoming_bytes.begin(), end_it));
+    const size_t header_end_pos = static_cast<size_t>(std::distance(incoming_bytes.begin(), crlf_first_iter));
     const size_t header_block_len = header_end_pos + 4;
 
     std::string_view header_block(
@@ -141,11 +76,11 @@ inline HTTPRequest parse_one_request(const std::vector<uint8_t>& incoming_bytes)
         header_end_pos
     );
 
-    // Split request line
-    size_t line_end = header_block.find("\r\n");
-    std::string_view request_line = (line_end == std::string_view::npos)
+    // split request line
+    size_t request_line_end = header_block.find("\r\n");
+    std::string_view request_line = (request_line_end == std::string_view::npos)
         ? header_block
-        : header_block.substr(0, line_end);
+        : header_block.substr(0, request_line_end);
 
     size_t sp1 = request_line.find(' ');
     if (sp1 == std::string_view::npos) {
@@ -160,10 +95,10 @@ inline HTTPRequest parse_one_request(const std::vector<uint8_t>& incoming_bytes)
     std::string_view target_sv = request_line.substr(sp1 + 1, sp2 - (sp1 + 1));
     std::string_view version_sv = request_line.substr(sp2 + 1);
 
-    if (!detail::is_valid_token(method_sv)) {
+    if (!is_valid_token(method_sv)) {
         return HTTPRequest::make_invalid();
     }
-    if (target_sv.empty() || target_sv[0] != '/' || detail::has_forbidden_target_chars(target_sv)) {
+    if (target_sv.empty() || target_sv[0] != '/' || has_forbidden_target_chars(target_sv)) {
         return HTTPRequest::make_invalid();
     }
     if (version_sv != "HTTP/1.1") {
@@ -182,8 +117,8 @@ inline HTTPRequest parse_one_request(const std::vector<uint8_t>& incoming_bytes)
         req.query = std::string(target_sv.substr(qpos + 1));
     }
 
-    // Parse header lines
-    size_t pos = (line_end == std::string_view::npos) ? header_block.size() : line_end + 2;
+    // parse header lines (each header is of the form name: value followed by a \r\n)
+    size_t pos = (request_line_end == std::string_view::npos) ? header_block.size() : request_line_end + 2;
     while (pos < header_block.size()) {
         size_t next_crlf = header_block.find("\r\n", pos);
         std::string_view line = (next_crlf == std::string_view::npos)
@@ -194,7 +129,7 @@ inline HTTPRequest parse_one_request(const std::vector<uint8_t>& incoming_bytes)
         if (line.empty()) {
             return HTTPRequest::make_invalid();
         }
-        // Reject obsolete line folding
+        // reject obsolete line folding (line should not start with a space or TAB)
         if (line[0] == ' ' || line[0] == '\t') {
             return HTTPRequest::make_invalid();
         }
@@ -205,7 +140,7 @@ inline HTTPRequest parse_one_request(const std::vector<uint8_t>& incoming_bytes)
         }
 
         std::string_view raw_name = line.substr(0, colon);
-        if (!detail::is_valid_token(raw_name)) {
+        if (!is_valid_token(raw_name)) {
             return HTTPRequest::make_invalid();
         }
 
@@ -214,17 +149,17 @@ inline HTTPRequest parse_one_request(const std::vector<uint8_t>& incoming_bytes)
             c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
         }
 
-        std::string_view value_sv = detail::trim_ows(line.substr(colon + 1));
-        if (!detail::is_valid_field_value(value_sv)) {
+        std::string_view value_sv = trim_whitespace(line.substr(colon + 1));
+        if (!is_valid_field_value(value_sv)) {
             return HTTPRequest::make_invalid();
         }
 
-        // Reject unsupported Transfer-Encoding and Expect headers
+        // reject unsupported Transfer-Encoding and Expect headers
         if (name == "transfer-encoding" || name == "expect") {
             return HTTPRequest::make_invalid();
         }
 
-        // Reject duplicate Host or Content-Length headers
+        // reject duplicate Host or Content-Length headers
         if ((name == "host" || name == "content-length") && req.headers.find(name) != req.headers.end()) {
             return HTTPRequest::make_invalid();
         }
@@ -232,14 +167,13 @@ inline HTTPRequest parse_one_request(const std::vector<uint8_t>& incoming_bytes)
         req.headers[std::move(name)] = std::string(value_sv);
     }
 
-    // Require non-empty Host header without whitespace
+    // require non-empty Host header without whitespace
     auto host_it = req.headers.find("host");
-    if (host_it == req.headers.end() || host_it->second.empty() ||
-        detail::has_forbidden_target_chars(host_it->second)) {
+    if (host_it == req.headers.end() || host_it->second.empty() || has_forbidden_target_chars(host_it->second)) {
         return HTTPRequest::make_invalid();
     }
 
-    // Parse Content-Length if present
+    // parse Content-Length if present
     size_t content_length = 0;
     auto cl_it = req.headers.find("content-length");
     if (cl_it != req.headers.end()) {

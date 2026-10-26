@@ -6,11 +6,27 @@
 #include <string>
 #include <vector>
 
-#include "parse.h"
+#include "request.h"
 #include "response.h"
 
+inline std::string request_to_string(const HTTPRequest& request) {
+    std::string out = request.method + " " + request.path;
+    if (!request.query.empty()) {
+        out += "?" + request.query;
+    }
+    out += " " + request.version;
+    for (const auto& [k, v] : request.headers) {
+        out += " " + k + ":" + v;
+    }
+    if (!request.body.empty()) {
+        out += " ";
+        out.append(reinterpret_cast<const char*>(request.body.data()), request.body.size());
+    }
+    return out;
+}
+
 inline std::vector<uint8_t> handle_request(const HTTPRequest& request) {
-    std::string stringified = request.to_string();
+    std::string stringified = request_to_string(request);
 
     std::cout << "Server received: " << stringified << std::endl;
 

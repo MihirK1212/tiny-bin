@@ -26,11 +26,11 @@
 #include <netinet/ip.h>
 #include <sys/poll.h>
 #include <unistd.h>
-#include <optional>
 #include <utility>
 
 #include "socket_utils.h"
 #include "http/parse.h"
+#include "http/request.h"
 
 const size_t k_idle_buf_cap = 64 * 1024;
 

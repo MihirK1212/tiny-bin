@@ -5,6 +5,7 @@
 #include "event_loop.h"
 #include "connection.h"
 #include "http/handler.h"
+#include "http/request.h"
 
 EventLoop::EventLoop(int server_fd) : server_fd(server_fd), running(true) {}
 
