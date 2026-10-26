@@ -3,25 +3,26 @@
 
 #include <cstdint>
 #include <iostream>
+#include <string>
 #include <vector>
 
 #include "parse.h"
+#include "response.h"
 
 inline std::vector<uint8_t> handle_request(const HTTPRequest& request) {
-    const std::vector<uint8_t>& request_data = request.data.value();
+    std::string stringified = request.to_string();
 
-    std::cout << "Server received: ";
-    for (uint32_t byte : request_data) {
-        std::cout << (char)byte << " ";
-    }
-    std::cout << std::endl;
+    std::cout << "Server received: " << stringified << std::endl;
 
-    std::vector<uint8_t> response_data;
-    response_data.reserve(6 + request_data.size());
-    response_data.insert(response_data.end(), {'P', 'O', 'N', 'G', ':', ' '});
-    response_data.insert(response_data.end(), request_data.begin(), request_data.end());
+    std::string reply_body = "PONG: " + stringified + "\n";
 
-    return response_data;
+    HTTPResponse response;
+    response.status_code = 200;
+    response.reason_phrase = "OK";
+    response.headers["Content-Type"] = "text/plain; charset=utf-8";
+    response.body.assign(reply_body.begin(), reply_body.end());
+
+    return response.serialize();
 }
 
 #endif

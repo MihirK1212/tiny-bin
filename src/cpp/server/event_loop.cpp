@@ -173,7 +173,7 @@ void EventLoop::process_connection(Connection* conn) {
 
     std::vector<HTTPRequest> requests = conn->pop_parsed_requests(1);
     for (HTTPRequest& request : requests) {
-        if (!request.success || !request.data.has_value()) {
+        if (!request.success) {
             throw std::logic_error("Invalid request in parsed_requests");
         }
 

@@ -148,7 +148,7 @@ struct Connection {
         
         while(true) {
             HTTPRequest request = try_one_request();
-            if(!request.success || !request.data.has_value()) {
+            if(!request.success) {
                 break;
             }
             parsed_requests.push_back(std::move(request));
@@ -248,8 +248,6 @@ struct Connection {
             throw std::logic_error("enqueue_response called in invalid state");
         }
 
-        uint32_t len = htonl(data.size());
-        buf_append(outgoing_bytes, (const uint8_t *)&len, 4);
         buf_append(outgoing_bytes, data.data(), data.size());
     }
 
