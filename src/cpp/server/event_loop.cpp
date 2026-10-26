@@ -4,6 +4,7 @@
 
 #include "event_loop.h"
 #include "connection.h"
+#include "http/handler.h"
 
 EventLoop::EventLoop(int server_fd) : server_fd(server_fd), running(true) {}
 
@@ -177,17 +178,7 @@ void EventLoop::process_connection(Connection* conn) {
         }
 
         const std::vector<uint8_t>& request_data = request.data.value();
-
-        std::cout << "Server received: ";
-        for (uint32_t byte : request_data) {
-            std::cout << (char)byte << " ";
-        }
-        std::cout << std::endl;
-
-        std::vector<uint8_t> response_data;
-        response_data.reserve(6 + request_data.size());
-        response_data.insert(response_data.end(), {'P', 'O', 'N', 'G', ':', ' '});
-        response_data.insert(response_data.end(), request_data.begin(), request_data.end());
+        std::vector<uint8_t> response_data = handle_request(request_data);
 
         // echo response
         conn->enqueue_response(response_data);

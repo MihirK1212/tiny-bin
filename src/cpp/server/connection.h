@@ -30,14 +30,9 @@
 #include <utility>
 
 #include "socket_utils.h"
+#include "http/parse.h"
 
-const size_t k_max_msg = 32 << 20; 
 const size_t k_idle_buf_cap = 64 * 1024;
-
-struct ReadResponse {
-    bool success;
-    std::optional<std::vector<uint8_t>> data;
-};
 
 struct SocketReadResult {
     bool errored;
@@ -237,43 +232,23 @@ struct Connection {
     }
 
     ReadResponse try_one_request() {
-        /*
-            for now, assume that message is of the following format:
-            4 bytes -> len of message
-            followed by
-            `len` bytes -> actual message        
-        */
-
         if(!(get_state() == ConnectionState::PARSING)) {
             throw std::logic_error("try_one_request called in invalid state");
         }
 
-        if(incoming_bytes.size() < 4) {
-            return ReadResponse{false, std::nullopt};
-        }
-
-        uint32_t len_network = 0;
-        memcpy(&len_network, incoming_bytes.data(), 4);
-        uint32_t len = ntohl(len_network);
-
-        if(len > k_max_msg) {
+        ReadResponse response = parse_one_request(incoming_bytes);
+        if (response.invalid_request) {
             // signal that the connection should be closed after flushing any already-parsed responses
             reached_invalid_request = true;
-            return ReadResponse{false, std::nullopt};
+            return response;
         }
 
-        if(incoming_bytes.size() < (4 + len)) {
-            return ReadResponse{false, std::nullopt};
+        if (response.success && response.bytes_consumed > 0) {
+            // remove message from incoming
+            buf_consume(incoming_bytes, response.bytes_consumed);
         }
 
-        // store the response in a vector
-        std::vector<uint8_t> data(incoming_bytes.begin() + 4,
-                                  incoming_bytes.begin() + 4 + len);
-
-        // remove message from incoming
-        buf_consume(incoming_bytes, 4 + len);
-
-        return ReadResponse{true, std::move(data)};
+        return response;
     }
 
     void enqueue_response(const std::vector<uint8_t> &data) {
