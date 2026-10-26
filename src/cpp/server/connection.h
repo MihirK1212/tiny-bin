@@ -147,11 +147,11 @@ struct Connection {
         }
         
         while(true) {
-            HTTPRequest response = try_one_request();
-            if(!response.success || !response.data.has_value()) {
+            HTTPRequest request = try_one_request();
+            if(!request.success || !request.data.has_value()) {
                 break;
             }
-            parsed_requests.push_back(std::move(response));
+            parsed_requests.push_back(std::move(request));
         }
 
         if(!parsed_requests.empty()) {
@@ -228,19 +228,19 @@ struct Connection {
             throw std::logic_error("try_one_request called in invalid state");
         }
 
-        HTTPRequest response = parse_one_request(incoming_bytes);
-        if (response.invalid_request) {
+        HTTPRequest request = parse_one_request(incoming_bytes);
+        if (request.invalid_request) {
             // signal that the connection should be closed after flushing any already-parsed responses
             reached_invalid_request = true;
-            return response;
+            return request;
         }
 
-        if (response.success && response.bytes_consumed > 0) {
+        if (request.success && request.bytes_consumed > 0) {
             // remove message from incoming
-            buf_consume(incoming_bytes, response.bytes_consumed);
+            buf_consume(incoming_bytes, request.bytes_consumed);
         }
 
-        return response;
+        return request;
     }
 
     void enqueue_response(const std::vector<uint8_t> &data) {
