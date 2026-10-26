@@ -81,47 +81,22 @@ void EventLoop::run() {
                 conn->read_from_socket();
             }
 
-            // check if socket doesnt need read but incoming buffer is not empty
-            if(conn->wants_read()) {
-                conn->check_remaining_incoming_buffer();
-            }
-
             // PARSE
             if (!conn->wants_close() && conn->wants_parse()) {
-                std::vector<ReadResponse> requests = conn->parse_incoming_buffer();
-
-                if(conn->wants_processing()) {
-                    for(ReadResponse& request: requests) {
-                        if(!request.success || !request.data.has_value()) {
-                            continue;
-                        }
-
-                        const std::vector<uint8_t>& request_data = request.data.value();
-
-                        std::cout << "Server received: ";
-                        for(uint32_t byte : request_data) {
-                            std::cout << (char)byte << " ";
-                        }
-                        std::cout << std::endl;
-
-                        std::vector<uint8_t> response_data;
-                        response_data.reserve(6 + request_data.size());
-                        response_data.insert(response_data.end(), {'P', 'O', 'N', 'G', ':', ' '});
-                        response_data.insert(response_data.end(), request_data.begin(), request_data.end());
-                        
-                        // echo response
-                        conn->enqueue_response(response_data);
-                    }
-
-                    conn->mark_processing_complete();
-                }
+                conn->parse_incoming_buffer();
             }
 
+            // PROCESS
+            process_connection(conn);
+            
             // WRITE
             if(!conn->wants_close() && conn->wants_write() && (ready & (POLLOUT | POLLHUP))) {
                 assert(conn->wants_write());
                 conn->write_to_socket();
             }
+
+            // PROCESS any remaining pipelined request transitioned to PROCESSING after WRITE
+            process_connection(conn);
 
             // CLOSE
             if ((ready & (POLLERR | POLLNVAL)) || conn->wants_close()) {
@@ -156,4 +131,36 @@ void EventLoop::stop() {
         shutdown(server_fd, SHUT_RDWR);
     }
     std::cout << "Event loop stopped on server fd " << server_fd << std::endl;
+}
+
+
+void EventLoop::process_connection(Connection* conn) {
+    if (!conn->wants_processing()) {
+        return;
+    }
+
+    std::vector<ReadResponse> requests = conn->pop_parsed_requests(1);
+    for (ReadResponse& request : requests) {
+        if (!request.success || !request.data.has_value()) {
+            throw std::logic_error("Invalid request in parsed_requests");
+        }
+
+        const std::vector<uint8_t>& request_data = request.data.value();
+
+        std::cout << "Server received: ";
+        for (uint32_t byte : request_data) {
+            std::cout << (char)byte << " ";
+        }
+        std::cout << std::endl;
+
+        std::vector<uint8_t> response_data;
+        response_data.reserve(6 + request_data.size());
+        response_data.insert(response_data.end(), {'P', 'O', 'N', 'G', ':', ' '});
+        response_data.insert(response_data.end(), request_data.begin(), request_data.end());
+
+        // echo response
+        conn->enqueue_response(response_data);
+    }
+
+    conn->mark_processing_complete();
 }
