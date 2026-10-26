@@ -3,6 +3,8 @@
 
 #include <atomic>
 
+#include "connection.h"
+
 class EventLoop {
     public:
         EventLoop(int server_fd);
@@ -15,6 +17,8 @@ class EventLoop {
         int server_fd;
 
         std::atomic<bool> running{true};
+
+        static void process_connection(Connection* conn);
 };
 
 #endif

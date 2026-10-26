@@ -4,6 +4,7 @@
 
 #include "event_loop.h"
 #include "connection.h"
+#include "http/handler.h"
 
 EventLoop::EventLoop(int server_fd) : server_fd(server_fd), running(true) {}
 
@@ -41,10 +42,10 @@ void EventLoop::run() {
 
             struct pollfd client_pfd = {conn->fd, 0, 0};
 
-            if(conn->want_read) {
+            if(conn->wants_read()) {
                 client_pfd.events |= POLLIN;
             }
-            if(conn->want_write) {
+            if(conn->wants_write()) {
                 client_pfd.events |= POLLOUT;
             }
 
@@ -69,52 +70,74 @@ void EventLoop::run() {
             }
         }
 
+        /*
+            READ:
+                - READ: read new data from the connection socket. 
+                - If EOF is reached during READ, move to PARSING (if incoming_bytes is not empty) or PROCESSING (if parsed_requests is not empty) else WAITING_CLOSE
+            PARSE:
+                - PARSE: if data present in incoming_bytes, parse it and keep filling the parsed_requests queue 
+                - if parsed_requests is not empty, move to PROCESSING 
+                - if no parsed_requests left and new reads are blocked, move to WAITING_CLOSE 
+                - else if no more parasable message but new reads are not blocked, move to READING 
+
+            PROCESSING: 
+                - process one valid request from the parsed_requests queue and write the response to the connection socket
+                - in normal case, move to WRITING so that the response is written to the connection socket 
+                - but if there are no more pipelined requests to process and new reads are blocked, move to WRITE_FLUSH (flush remaining output and then close)
+
+            WRITE:
+                - keep writing the outgoing_bytes to the connection socket
+                - we stay in WRITE for possibly multiple "poll" calls until all the outgoing_bytes have been written 
+                - once all the outgoing_bytes have been written, move to PROCESSING again to process any remaining pipelined request 
+                - if all the outgoing_bytes have been written and no more pipelined requests to process, move to READING to read new data
+
+            WRITE_FLUSH: 
+               - keep writing the outgoing_bytes to the connection socket
+               - we stay in WRITE for possibly multiple "poll" calls until all the outgoing_bytes have been written  
+               - once all the outgoing_bytes have been written, move to WAITING_CLOSE
+            
+            - PROCESSING again
+                - any remaining pipelined request transitioned to PROCESSING after WRITE 
+                - same behavior as PROCESSING state 
+        */
+
         // handle client connection sockets
         for(size_t i=1; i < poll_args.size(); i++) {
             uint32_t ready = poll_args[i].revents;
-            if(ready == 0) {
-                continue;
-            }
 
             Connection* conn = fd2conn[poll_args[i].fd];
+            
+            // READ
+            if(conn->wants_read() && (ready & (POLLIN | POLLHUP))) {
+                assert(conn->wants_read());
+                conn->read_from_socket();
+            }
 
-            // a hangup can still leave buffered input to read before EOF.
-            if(conn->want_read && (ready & (POLLIN | POLLHUP))) {
-                assert(conn->want_read);
-                std::vector<ReadResponse> requests = conn->handle_read();
-                if (!conn->want_close) {
-                    for(ReadResponse& request: requests) {
-                        if(!request.success || !request.data.has_value()) {
-                            continue;
-                        }
+            // PARSE
+            if (!conn->wants_close() && conn->wants_parse()) {
+                conn->parse_incoming_buffer();
+            }
 
-                        const std::vector<uint8_t>& request_data = request.data.value();
+            // PROCESS
+            process_connection(conn);
+            
+            // WRITE
+            if(!conn->wants_close() && conn->wants_write() && (ready & (POLLOUT | POLLHUP))) {
+                assert(conn->wants_write());
+                conn->write_to_socket();
+            }
 
-                        std::cout << "Server received: ";
-                        for(uint32_t byte : request_data) {
-                            std::cout << (char)byte << " ";
-                        }
-                        std::cout << std::endl;
+            // PROCESS any remaining pipelined request transitioned to PROCESSING after WRITE
+            process_connection(conn);
 
-                        std::vector<uint8_t> response_data;
-                        response_data.reserve(6 + request_data.size());
-                        response_data.insert(response_data.end(), {'P', 'O', 'N', 'G', ':', ' '});
-                        response_data.insert(response_data.end(), request_data.begin(), request_data.end());
-                        
-                        // echo response
-                        conn->enqueue_response(response_data);
-                    }
+            // CLOSE
+            if ((ready & (POLLERR | POLLNVAL)) || conn->wants_close()) {
+                int fd = conn->fd;
+                if (!conn->wants_close()) {
+                    conn->request_close();
                 }
-            }
-
-            if(!conn->want_close && conn->want_write && (ready & (POLLOUT | POLLHUP))) {
-                assert(conn->want_write);
-                conn->handle_write();
-            }
-
-            if ((ready & POLLERR) || conn->want_close) {
-                close(conn->fd);
-                fd2conn[conn->fd] = NULL;
+                conn->close_connection();
+                fd2conn[fd] = NULL;
                 delete conn;
             }
         }
@@ -123,7 +146,12 @@ void EventLoop::run() {
     // cleanup remaining connections on shutdown
     for (Connection* conn : fd2conn) {
         if (conn) {
-            close(conn->fd);
+            if (conn->get_state() != ConnectionState::CLOSED) {
+                if (!conn->wants_close()) {
+                    conn->request_close();
+                }
+                conn->close_connection();
+            }
             delete conn;
         }
     }
@@ -135,4 +163,26 @@ void EventLoop::stop() {
         shutdown(server_fd, SHUT_RDWR);
     }
     std::cout << "Event loop stopped on server fd " << server_fd << std::endl;
+}
+
+
+void EventLoop::process_connection(Connection* conn) {
+    if (!conn->wants_processing()) {
+        return;
+    }
+
+    std::vector<ReadResponse> requests = conn->pop_parsed_requests(1);
+    for (ReadResponse& request : requests) {
+        if (!request.success || !request.data.has_value()) {
+            throw std::logic_error("Invalid request in parsed_requests");
+        }
+
+        const std::vector<uint8_t>& request_data = request.data.value();
+        std::vector<uint8_t> response_data = handle_request(request_data);
+
+        // echo response
+        conn->enqueue_response(response_data);
+    }
+
+    conn->mark_processing_complete();
 }

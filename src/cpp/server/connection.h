@@ -1,10 +1,13 @@
 #ifndef CONNECTION_H
 #define CONNECTION_H
 
+#include <algorithm>
 #include <cassert>
 #include <cerrno>
 #include <cstddef>
 #include <cstdint>
+#include <deque>
+#include <stdexcept>
 #include <sys/types.h>
 #include <vector>
 #include <asm-generic/socket.h>
@@ -27,33 +30,79 @@
 #include <utility>
 
 #include "socket_utils.h"
+#include "http/parse.h"
 
-const size_t k_max_msg = 32 << 20; 
 const size_t k_idle_buf_cap = 64 * 1024;
 
-struct ReadResponse {
-    bool success;
-    std::optional<std::vector<uint8_t>> data;
+enum class ConnectionState {
+    INIT,
+    READING, // reading from connection 
+    PARSING, // parsing the incoming bytes
+    PROCESSING, // processing a parsed request
+    WRITING, // writing to connection
+    WRITE_FLUSH, // there is data in outgoing_bytes to write
+    WAITING_CLOSE, // waiting for close to complete
+    CLOSED, // connection is closed
 };
 
+/*
+- READING: messages are read from the connection socket and put into the incoming_bytes buffer 
+- PARSING: messages are parsed from the incoming_bytes buffer 
+- PROCESSING: messages are processed 
+- WRITING: outgoing_bytes are written to the connection socket. keep writing until all the outgoing_bytes have been written
+- WRITE_FLUSH: remaining outgoing_bytes are written to the connection socket and then the connection is closed
+- WAITING_CLOSE: the connection is waiting for close to complete
+- CLOSED: the connection is closed
+
+Some important state machine rules:
+- INIT -> READING: new connection is accepted 
+- The only way to move to the READING state again is :
+    - from the PARSING state if there are no more parsable message but EOF / invalid request was not reached
+    - from the WRITING state after all the outgoing_bytes have been written
+- general rule: enqueued responses in outgoing_bytes will all be written to the connection before moving back to READING state 
+- WRITE_FLUSH means that there is data in outgoing_bytes that needs to be drained (flushed) before closing. no new data will be read 
+- never go into READING state if new reads are blocked 
+*/
+
+struct ConnectionStateManager {
+    ConnectionState state = ConnectionState::INIT;
+
+    void transition(ConnectionState new_state) {
+        state = new_state;
+    }
+};
 
 struct Connection {
     int fd = -1;
-    
-    bool want_read = false; // there is something in  the connection that needs to be read by event loop
-    bool want_write = false; // something needs to be written to the connection 
-    bool want_close = false;
-    bool read_eof = false;
 
+    ConnectionStateManager state_manager;
+
+    Connection(int fd) : fd(fd) {
+        state_manager.transition(ConnectionState::INIT);
+    }
+    
     std::vector<uint8_t> incoming_bytes; // bytes received from the connection
     std::vector<uint8_t> outgoing_bytes; // bytes to be written into the connection
 
-    std::vector<ReadResponse> handle_read() {
-        /*
-            - keep filling data into the `incoming_bytes` buffer
-            - after ever fill, do `try_one_request()` to see if we have valid request data
-            - inside each `try_one_request`, process one valid request and then remove its data from the incoming buffer 
-        */
+    std::deque<ReadResponse> parsed_requests; // requests that have been parsed from the incoming_bytes buffer
+
+    bool reached_eof = false;
+    bool reached_invalid_request = false; // set when an oversized payload is seen; drain existing responses before closing
+
+    /*
+        - keep filling data into the `incoming_bytes` buffer (READ)
+        - after ever fill, do `try_one_request()` to see if we have valid request data then remove its data from the incoming buffer (PARSE)
+        - after parsing all valid requests, process one valid request (PROCESS)
+    */
+
+    void read_from_socket() {
+        if(!(get_state() == ConnectionState::READING)) {
+            throw std::logic_error("read_from_socket called in invalid state");
+        }
+ 
+        if(new_reads_blocked()) { 
+            throw std::logic_error("read_from_socket called when new reads are blocked");
+        }
 
         uint8_t data[64*1024];
         ssize_t rv = 0;
@@ -62,38 +111,84 @@ struct Connection {
         } while (rv < 0 && errno == EINTR);
 
         if (rv < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-            return {};
+            return;
         }
         if (rv < 0) {
-            want_close = true;
-            return {};
+            state_manager.transition(ConnectionState::WAITING_CLOSE);
+            return;
         }
+
+        // EOF
         if (rv == 0) {
-            // A peer may finish sending while it is still waiting for replies.
-            read_eof = true;
-            want_read = false;
-            want_close = outgoing_bytes.empty();
-            return {};
+            reached_eof = true; 
+            assert(outgoing_bytes.empty()); // outgoing_bytes should be empty at this point since we go into READING state again only after writing all outgoing_bytes
+
+            if(!incoming_bytes.empty()) {
+                state_manager.transition(ConnectionState::PARSING);
+            }
+            else if(!parsed_requests.empty()) {
+                state_manager.transition(ConnectionState::PROCESSING);
+            }
+            else {
+                state_manager.transition(ConnectionState::WAITING_CLOSE);
+            }
+            return;
         }
 
         size_t len = (size_t)rv;
         buf_append(incoming_bytes, data, len);
 
-        std::vector<ReadResponse> responses;
+        state_manager.transition(ConnectionState::PARSING);
+    }
 
-        while(!want_close) {
+    void parse_incoming_buffer() {
+        if(!(get_state() == ConnectionState::PARSING)) {
+            throw std::logic_error("parse_incoming_buffer called in invalid state");
+        }
+        
+        while(true) {
             ReadResponse response = try_one_request();
             if(!response.success || !response.data.has_value()) {
                 break;
             }
-            responses.push_back(std::move(response));
+            parsed_requests.push_back(std::move(response));
         }
-        
-        return responses;
+
+        if(!parsed_requests.empty()) {
+            state_manager.transition(ConnectionState::PROCESSING);
+        }
+        else if (new_reads_blocked()) {
+            assert (outgoing_bytes.empty()); // outgoing_bytes should be empty at this point since we go into READING->PARSING state again only after writing all outgoing_bytes
+
+            // no more parasable message and EOF / invalid request was reached
+            state_manager.transition(ConnectionState::WAITING_CLOSE);
+        } else {
+            // no more parsable messages but EOF was not reached. continue reading
+            state_manager.transition(ConnectionState::READING);
+        } 
     }
 
-    void handle_write() {
-        assert(outgoing_bytes.size() > 0);
+    std::vector<ReadResponse> pop_parsed_requests(size_t num_requests) {
+        if(get_state() != ConnectionState::PROCESSING) {
+            throw std::logic_error("pop_parsed_requests called in invalid state");
+        }
+
+        const size_t count = std::min(num_requests, parsed_requests.size());
+        std::vector<ReadResponse> requests;
+        requests.reserve(count);
+        for(size_t i = 0; i < count; i++) {
+            requests.push_back(std::move(parsed_requests.front()));
+            parsed_requests.pop_front();
+        }
+        return requests;
+    }
+
+    void write_to_socket() {
+        if(!(get_state() == ConnectionState::WRITING)  && !(get_state() == ConnectionState::WRITE_FLUSH)) {
+            throw std::logic_error("write_to_socket called in invalid state");
+        }
+
+        assert(!outgoing_bytes.empty());
 
         ssize_t rv = 0;
         do {
@@ -104,66 +199,73 @@ struct Connection {
             return; // actually not ready
         }
         if(rv < 0) {
-            want_close = true;
+            state_manager.transition(ConnectionState::WAITING_CLOSE);
             return;
         }
 
         buf_consume(outgoing_bytes, (size_t)rv);
 
-        if(outgoing_bytes.size() < k_max_msg && !want_close && !read_eof) {
-            want_read = true;
-        }
         if(outgoing_bytes.size() == 0) {
-            want_write = false;
-            if (read_eof) {
-                want_close = true;
+            if(get_state() == ConnectionState::WRITE_FLUSH) {
+                state_manager.transition(ConnectionState::WAITING_CLOSE);
+            }
+            else if(get_state() == ConnectionState::WRITING) {
+                if(!parsed_requests.empty()) {
+                    state_manager.transition(ConnectionState::PROCESSING);
+                }
+                else if(!new_reads_blocked()) {
+                    state_manager.transition(ConnectionState::READING);
+                }
+            }
+            else {
+                throw std::logic_error("write_to_socket called in invalid state");
             }
         }
     }
 
     ReadResponse try_one_request() {
-        /*
-            for now, assume that message is of the following format:
-            4 bytes -> len of message
-            followed by
-            `len` bytes -> actual message        
-        */
-
-        if(incoming_bytes.size() < 4) {
-            return ReadResponse{false, std::nullopt};
+        if(!(get_state() == ConnectionState::PARSING)) {
+            throw std::logic_error("try_one_request called in invalid state");
         }
 
-        uint32_t len_network = 0;
-        memcpy(&len_network, incoming_bytes.data(), 4);
-        uint32_t len = ntohl(len_network);
-
-        if(len > k_max_msg) {
-            want_close = true;
-            return ReadResponse{false, std::nullopt};
+        ReadResponse response = parse_one_request(incoming_bytes);
+        if (response.invalid_request) {
+            // signal that the connection should be closed after flushing any already-parsed responses
+            reached_invalid_request = true;
+            return response;
         }
 
-        if(incoming_bytes.size() < (4 + len)) {
-            return ReadResponse{false, std::nullopt};
+        if (response.success && response.bytes_consumed > 0) {
+            // remove message from incoming
+            buf_consume(incoming_bytes, response.bytes_consumed);
         }
 
-        // store the response in a vector
-        std::vector<uint8_t> data(incoming_bytes.begin() + 4,
-                                  incoming_bytes.begin() + 4 + len);
-
-        // remove message from incoming
-        buf_consume(incoming_bytes, 4 + len);
-
-        return ReadResponse{true, std::move(data)};
+        return response;
     }
 
     void enqueue_response(const std::vector<uint8_t> &data) {
+        if(get_state() != ConnectionState::PROCESSING) {
+            throw std::logic_error("enqueue_response called in invalid state");
+        }
+
         uint32_t len = htonl(data.size());
         buf_append(outgoing_bytes, (const uint8_t *)&len, 4);
         buf_append(outgoing_bytes, data.data(), data.size());
-        if (outgoing_bytes.size() >= k_max_msg) {
-            want_read = false;
+    }
+
+    void mark_processing_complete() {
+        if(get_state() != ConnectionState::PROCESSING) {
+            throw std::logic_error("mark_processing_complete called in invalid state");
         }
-        want_write = true;
+        if(outgoing_bytes.empty()) {
+            throw std::logic_error("mark_processing_complete called with empty outgoing_bytes");
+        }
+        if(parsed_requests.empty() && new_reads_blocked()) {
+            // no more pipelined requests to process and new reads are blocked, so we need to flush the outgoing_bytes and close the connection
+            state_manager.transition(ConnectionState::WRITE_FLUSH);
+        } else {
+            state_manager.transition(ConnectionState::WRITING);
+        }
     }
 
     static Connection* handle_accept(int server_fd) {
@@ -182,10 +284,53 @@ struct Connection {
             return NULL;
         }
 
-        Connection* conn = new Connection();
-        conn->fd = connfd;
-        conn->want_read = true;
+        Connection* conn = new Connection(connfd);
+        conn->state_manager.transition(ConnectionState::READING);
         return conn;
+    }
+
+    ConnectionState get_state() const {
+        return state_manager.state;
+    }
+
+    bool wants_read() const {
+        return get_state() == ConnectionState::READING;
+    }
+
+    bool wants_parse() const {
+        return get_state() == ConnectionState::PARSING;
+    }
+
+    bool wants_write() const {
+        return get_state() == ConnectionState::WRITING || get_state() == ConnectionState::WRITE_FLUSH;
+    }
+    
+    bool wants_close() const {
+        return get_state() == ConnectionState::WAITING_CLOSE;
+    }
+
+    bool wants_processing() const {
+        return get_state() == ConnectionState::PROCESSING;
+    }
+
+    bool new_reads_blocked() const {
+        return reached_eof || reached_invalid_request;
+    }
+
+    void request_close() {
+        if(get_state() == ConnectionState::CLOSED) {
+            throw std::logic_error("request_close called in invalid state");
+        }
+        state_manager.transition(ConnectionState::WAITING_CLOSE);
+    }
+
+    void close_connection() {
+        if(get_state() != ConnectionState::WAITING_CLOSE) {
+            throw std::logic_error("close_connection called in invalid state");
+        }
+        close(fd);
+        fd = -1;
+        state_manager.transition(ConnectionState::CLOSED);
     }
 
     static void buf_append(std::vector<uint8_t> &buf, const uint8_t *data, size_t len) {
