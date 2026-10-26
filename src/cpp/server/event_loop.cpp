@@ -69,6 +69,37 @@ void EventLoop::run() {
             }
         }
 
+        /*
+            READ:
+                - READ: read new data from the connection socket. 
+                - If EOF is reached during READ, move to PARSING (if incoming_bytes is not empty) or PROCESSING (if parsed_requests is not empty) else WAITING_CLOSE
+            PARSE:
+                - PARSE: if data present in incoming_bytes, parse it and keep filling the parsed_requests queue 
+                - if parsed_requests is not empty, move to PROCESSING 
+                - if no parsed_requests left and new reads are blocked, move to WAITING_CLOSE 
+                - else if no more parasable message but new reads are not blocked, move to READING 
+
+            PROCESSING: 
+                - process one valid request from the parsed_requests queue and write the response to the connection socket
+                - in normal case, move to WRITING so that the response is written to the connection socket 
+                - but if there are no more pipelined requests to process and new reads are blocked, move to WRITE_FLUSH (flush remaining output and then close)
+
+            WRITE:
+                - keep writing the outgoing_bytes to the connection socket
+                - we stay in WRITE for possibly multiple "poll" calls until all the outgoing_bytes have been written 
+                - once all the outgoing_bytes have been written, move to PROCESSING again to process any remaining pipelined request 
+                - if all the outgoing_bytes have been written and no more pipelined requests to process, move to READING to read new data
+
+            WRITE_FLUSH: 
+               - keep writing the outgoing_bytes to the connection socket
+               - we stay in WRITE for possibly multiple "poll" calls until all the outgoing_bytes have been written  
+               - once all the outgoing_bytes have been written, move to WAITING_CLOSE
+            
+            - PROCESSING again
+                - any remaining pipelined request transitioned to PROCESSING after WRITE 
+                - same behavior as PROCESSING state 
+        */
+
         // handle client connection sockets
         for(size_t i=1; i < poll_args.size(); i++) {
             uint32_t ready = poll_args[i].revents;
