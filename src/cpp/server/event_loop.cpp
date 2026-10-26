@@ -171,14 +171,13 @@ void EventLoop::process_connection(Connection* conn) {
         return;
     }
 
-    std::vector<ReadResponse> requests = conn->pop_parsed_requests(1);
-    for (ReadResponse& request : requests) {
+    std::vector<HTTPRequest> requests = conn->pop_parsed_requests(1);
+    for (HTTPRequest& request : requests) {
         if (!request.success || !request.data.has_value()) {
             throw std::logic_error("Invalid request in parsed_requests");
         }
 
-        const std::vector<uint8_t>& request_data = request.data.value();
-        std::vector<uint8_t> response_data = handle_request(request_data);
+        std::vector<uint8_t> response_data = handle_request(request);
 
         // echo response
         conn->enqueue_response(response_data);

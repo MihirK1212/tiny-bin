@@ -11,14 +11,14 @@
 
 const size_t k_max_msg = 32 << 20;
 
-struct ReadResponse {
+struct HTTPRequest {
     bool success = false;
     bool invalid_request = false;
     size_t bytes_consumed = 0;
     std::optional<std::vector<uint8_t>> data = std::nullopt;
 };
 
-inline ReadResponse parse_one_request(const std::vector<uint8_t>& incoming_bytes) {
+inline HTTPRequest parse_one_request(const std::vector<uint8_t>& incoming_bytes) {
     /*
         for now, assume that message is of the following format:
         4 bytes -> len of message
@@ -26,7 +26,7 @@ inline ReadResponse parse_one_request(const std::vector<uint8_t>& incoming_bytes
         `len` bytes -> actual message
     */
     if (incoming_bytes.size() < 4) {
-        return ReadResponse{false, false, 0, std::nullopt};
+        return HTTPRequest{false, false, 0, std::nullopt};
     }
 
     uint32_t len_network = 0;
@@ -34,17 +34,17 @@ inline ReadResponse parse_one_request(const std::vector<uint8_t>& incoming_bytes
     uint32_t len = ntohl(len_network);
 
     if (len > k_max_msg) {
-        return ReadResponse{false, true, 0, std::nullopt};
+        return HTTPRequest{false, true, 0, std::nullopt};
     }
 
     if (incoming_bytes.size() < (4 + len)) {
-        return ReadResponse{false, false, 0, std::nullopt};
+        return HTTPRequest{false, false, 0, std::nullopt};
     }
 
     std::vector<uint8_t> data(incoming_bytes.begin() + 4,
                               incoming_bytes.begin() + 4 + len);
 
-    return ReadResponse{true, false, 4 + (size_t)len, std::move(data)};
+    return HTTPRequest{true, false, 4 + (size_t)len, std::move(data)};
 }
 
 #endif

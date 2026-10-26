@@ -84,7 +84,7 @@ struct Connection {
     std::vector<uint8_t> incoming_bytes; // bytes received from the connection
     std::vector<uint8_t> outgoing_bytes; // bytes to be written into the connection
 
-    std::deque<ReadResponse> parsed_requests; // requests that have been parsed from the incoming_bytes buffer
+    std::deque<HTTPRequest> parsed_requests; // requests that have been parsed from the incoming_bytes buffer
 
     bool reached_eof = false;
     bool reached_invalid_request = false; // set when an oversized payload is seen; drain existing responses before closing
@@ -147,7 +147,7 @@ struct Connection {
         }
         
         while(true) {
-            ReadResponse response = try_one_request();
+            HTTPRequest response = try_one_request();
             if(!response.success || !response.data.has_value()) {
                 break;
             }
@@ -168,13 +168,13 @@ struct Connection {
         } 
     }
 
-    std::vector<ReadResponse> pop_parsed_requests(size_t num_requests) {
+    std::vector<HTTPRequest> pop_parsed_requests(size_t num_requests) {
         if(get_state() != ConnectionState::PROCESSING) {
             throw std::logic_error("pop_parsed_requests called in invalid state");
         }
 
         const size_t count = std::min(num_requests, parsed_requests.size());
-        std::vector<ReadResponse> requests;
+        std::vector<HTTPRequest> requests;
         requests.reserve(count);
         for(size_t i = 0; i < count; i++) {
             requests.push_back(std::move(parsed_requests.front()));
@@ -223,12 +223,12 @@ struct Connection {
         }
     }
 
-    ReadResponse try_one_request() {
+    HTTPRequest try_one_request() {
         if(!(get_state() == ConnectionState::PARSING)) {
             throw std::logic_error("try_one_request called in invalid state");
         }
 
-        ReadResponse response = parse_one_request(incoming_bytes);
+        HTTPRequest response = parse_one_request(incoming_bytes);
         if (response.invalid_request) {
             // signal that the connection should be closed after flushing any already-parsed responses
             reached_invalid_request = true;

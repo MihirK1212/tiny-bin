@@ -5,7 +5,11 @@
 #include <iostream>
 #include <vector>
 
-inline std::vector<uint8_t> handle_request(const std::vector<uint8_t>& request_data) {
+#include "parse.h"
+
+inline std::vector<uint8_t> handle_request(const HTTPRequest& request) {
+    const std::vector<uint8_t>& request_data = request.data.value();
+
     std::cout << "Server received: ";
     for (uint32_t byte : request_data) {
         std::cout << (char)byte << " ";
