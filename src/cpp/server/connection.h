@@ -34,14 +34,6 @@
 
 const size_t k_idle_buf_cap = 64 * 1024;
 
-struct SocketReadResult {
-    bool errored;
-    bool eof;
-    int num_bytes_read;
-    int error_code;
-    std::string error_message;
-};
-
 enum class ConnectionState {
     INIT,
     READING, // reading from connection 
