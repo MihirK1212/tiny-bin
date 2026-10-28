@@ -7,12 +7,14 @@
 #include <unordered_map>
 #include <vector>
 
+#include "method.h"
+
 struct HTTPRequest {
     bool success = false;
     bool invalid_request = false;
     size_t bytes_consumed = 0;
 
-    std::string method;
+    HTTPMethod method;
     std::string path;
     std::string query;
     std::string version;
@@ -20,11 +22,11 @@ struct HTTPRequest {
     std::vector<uint8_t> body;
 
     static HTTPRequest make_incomplete() {
-        return HTTPRequest{false, false, 0, {}, {}, {}, {}, {}, {}};
+        return HTTPRequest{false, false, 0, HTTPMethod::INVALID, {}, {}, {}, {}, {}};
     }
 
     static HTTPRequest make_invalid() {
-        return HTTPRequest{false, true, 0, {}, {}, {}, {}, {}, {}};
+        return HTTPRequest{false, true, 0, HTTPMethod::INVALID, {}, {}, {}, {}, {}};
     }
 };
 

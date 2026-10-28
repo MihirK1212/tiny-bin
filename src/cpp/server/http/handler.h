@@ -8,9 +8,10 @@
 
 #include "request.h"
 #include "response.h"
+#include "method.h"
 
 inline std::string request_to_string(const HTTPRequest& request) {
-    std::string out = request.method + " " + request.path;
+    std::string out = std::string(to_string(request.method)) + " " + request.path;
     if (!request.query.empty()) {
         out += "?" + request.query;
     }

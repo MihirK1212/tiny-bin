@@ -106,7 +106,10 @@ inline HTTPRequest parse_one_request(const std::vector<uint8_t>& incoming_bytes)
     }
 
     HTTPRequest req;
-    req.method = std::string(method_sv);
+    req.method = from_string(method_sv);
+    if (req.method == HTTPMethod::INVALID) {
+        return HTTPRequest::make_invalid();
+    }
     req.version = std::string(version_sv);
 
     size_t qpos = target_sv.find('?');
