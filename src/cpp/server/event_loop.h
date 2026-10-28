@@ -4,10 +4,11 @@
 #include <atomic>
 
 #include "connection.h"
+#include "http/router.h"
 
 class EventLoop {
     public:
-        EventLoop(int server_fd);
+        EventLoop(int server_fd, const Router& router);
         ~EventLoop();
 
         void run();
@@ -15,10 +16,11 @@ class EventLoop {
     
     private:
         int server_fd;
+        const Router& router;
 
         std::atomic<bool> running{true};
 
-        static void process_connection(Connection* conn);
+        void process_connection(Connection* conn);
 };
 
 #endif

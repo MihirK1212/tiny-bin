@@ -11,7 +11,8 @@
 #include "worker.h"
 #include "socket_utils.h"
 
-Worker::Worker(int id, int port) : id(id), port(port) {
+Worker::Worker(int id, int port, const Router& router)
+    : id(id), port(port), router(router) {
     setup_event_loop();
 }
 
@@ -45,7 +46,7 @@ void Worker::join() {
 
 void Worker::setup_event_loop() {
     server_fd = create_socket_and_bind(port);
-    event_loop = std::make_unique<EventLoop>(server_fd);
+    event_loop = std::make_unique<EventLoop>(server_fd, router);
 }
 
 void Worker::run() {

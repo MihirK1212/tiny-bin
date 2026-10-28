@@ -4,6 +4,7 @@
 #include <algorithm>
 
 
+#include "app/router.h"
 #include "server.h"
 
 
@@ -39,7 +40,7 @@ int main(int argc, char* argv[])  {
         num_workers = std::max<int>(1, std::thread::hardware_concurrency());
     }
 
-    Server server(port, num_workers);
+    Server server(port, num_workers, build_router());
     server.start_workers();
     server.block_until_shutdown();
     server.stop_workers();

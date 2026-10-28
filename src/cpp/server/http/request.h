@@ -14,7 +14,7 @@ struct HTTPRequest {
     bool invalid_request = false;
     size_t bytes_consumed = 0;
 
-    HTTPMethod method;
+    HTTPMethod method = HTTPMethod::INVALID;
     std::string path;
     std::string query;
     std::string version;

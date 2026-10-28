@@ -3,11 +3,13 @@
 #include <pthread.h>
 #include <memory>
 #include <stdexcept>
+#include <utility>
 
 #include "server.h"
 
 
-Server::Server(int port, int num_workers) {
+Server::Server(int port, int num_workers, Router router)
+    : port(port), num_workers(num_workers), router(std::move(router)) {
     if(port <= 0) {
         throw std::invalid_argument("Port must be greater than 0");
     }
@@ -15,13 +17,10 @@ Server::Server(int port, int num_workers) {
         throw std::invalid_argument("Number of workers must be greater than 0");
     }
 
-    this->port = port;
-    this->num_workers = num_workers;
-
     setup_signal_handlers();
 
     for(int i=0; i<this->num_workers; i++) {
-        this->workers.push_back(std::make_unique<Worker>(i, this->port)); 
+        this->workers.push_back(std::make_unique<Worker>(i, this->port, this->router)); 
     }
 }
 

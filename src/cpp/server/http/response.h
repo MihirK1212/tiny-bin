@@ -3,7 +3,9 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 struct HTTPResponse {
@@ -11,6 +13,15 @@ struct HTTPResponse {
     std::string reason_phrase = "OK";
     std::unordered_map<std::string, std::string> headers;
     std::vector<uint8_t> body;
+
+    static HTTPResponse text(int status, std::string reason, std::string_view text_body) {
+        HTTPResponse resp;
+        resp.status_code = status;
+        resp.reason_phrase = std::move(reason);
+        resp.headers["Content-Type"] = "text/plain; charset=utf-8";
+        resp.body.assign(text_body.begin(), text_body.end());
+        return resp;
+    }
 
     std::vector<uint8_t> serialize() const {
         std::string head = "HTTP/1.1 " + std::to_string(status_code) + " " + reason_phrase + "\r\n";

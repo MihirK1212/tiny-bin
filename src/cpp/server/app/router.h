@@ -1,14 +1,13 @@
-#ifndef SERVER_HTTP_HANDLER_H
-#define SERVER_HTTP_HANDLER_H
+#ifndef SERVER_APP_ROUTER_H
+#define SERVER_APP_ROUTER_H
 
-#include <cstdint>
 #include <iostream>
 #include <string>
-#include <vector>
 
-#include "request.h"
-#include "response.h"
-#include "method.h"
+#include "server/http/method.h"
+#include "server/http/request.h"
+#include "server/http/response.h"
+#include "server/http/router.h"
 
 inline std::string request_to_string(const HTTPRequest& request) {
     std::string out = std::string(to_string(request.method)) + " " + request.path;
@@ -26,20 +25,24 @@ inline std::string request_to_string(const HTTPRequest& request) {
     return out;
 }
 
-inline std::vector<uint8_t> handle_request(const HTTPRequest& request) {
+inline HTTPResponse handle_ping(const HTTPRequest& request) {
     std::string stringified = request_to_string(request);
-
     std::cout << "Server received: " << stringified << std::endl;
 
     std::string reply_body = "PONG: " + stringified + "\n";
+    return HTTPResponse::text(200, "OK", reply_body);
+}
 
-    HTTPResponse response;
-    response.status_code = 200;
-    response.reason_phrase = "OK";
-    response.headers["Content-Type"] = "text/plain; charset=utf-8";
-    response.body.assign(reply_body.begin(), reply_body.end());
+inline HTTPResponse handle_healthz(const HTTPRequest& /*request*/) {
+    return HTTPResponse::text(200, "OK", "ok\n");
+}
 
-    return response.serialize();
+inline Router build_router() {
+    Router router;
+    router.add_route(HTTPMethod::GET, "/ping", handle_ping);
+    router.add_route(HTTPMethod::POST, "/ping", handle_ping);
+    router.add_route(HTTPMethod::GET, "/healthz", handle_healthz);
+    return router;
 }
 
 #endif

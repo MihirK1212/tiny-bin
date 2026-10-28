@@ -1,13 +1,15 @@
 #ifndef WORKER_H
 #define WORKER_H
 
+#include <memory>
 #include <thread>
 
 #include "event_loop.h"
+#include "http/router.h"
 
 class Worker { 
     public: 
-        Worker(int id, int port);
+        Worker(int id, int port, const Router& router);
         ~Worker();
 
         void start(); // spawns thread worker
@@ -17,6 +19,7 @@ class Worker {
     private: 
         int id;
         int port;
+        const Router& router;
 
         int server_fd;
 

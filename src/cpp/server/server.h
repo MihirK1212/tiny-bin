@@ -1,13 +1,15 @@
 #ifndef SERVER_H
 #define SERVER_H
 
+#include <memory>
 #include <vector>
 
+#include "http/router.h"
 #include "worker.h"
 
 class Server {
     public:
-        Server(int port, int num_workers);
+        Server(int port, int num_workers, Router router);
 
         void start_workers(); // start the workers
         void block_until_shutdown(); // block until SIGINT/SIGTERM
@@ -17,6 +19,7 @@ class Server {
     private:
         int port;
         int num_workers;
+        Router router;
 
         std::vector<std::unique_ptr<Worker>> workers;    
 
