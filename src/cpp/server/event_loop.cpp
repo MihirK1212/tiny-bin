@@ -4,9 +4,11 @@
 
 #include "event_loop.h"
 #include "connection.h"
-#include "http/handler.h"
+#include "http/request.h"
+#include "http/response.h"
 
-EventLoop::EventLoop(int server_fd) : server_fd(server_fd), running(true) {}
+EventLoop::EventLoop(int server_fd, const Router& router)
+    : server_fd(server_fd), router(router), running(true) {}
 
 EventLoop::~EventLoop() {}
 
@@ -171,17 +173,14 @@ void EventLoop::process_connection(Connection* conn) {
         return;
     }
 
-    std::vector<ReadResponse> requests = conn->pop_parsed_requests(1);
-    for (ReadResponse& request : requests) {
-        if (!request.success || !request.data.has_value()) {
+    std::vector<HTTPRequest> requests = conn->pop_parsed_requests(1);
+    for (HTTPRequest& request : requests) {
+        if (!request.success) {
             throw std::logic_error("Invalid request in parsed_requests");
         }
 
-        const std::vector<uint8_t>& request_data = request.data.value();
-        std::vector<uint8_t> response_data = handle_request(request_data);
-
-        // echo response
-        conn->enqueue_response(response_data);
+        HTTPResponse response = router.handle_request(request);
+        conn->enqueue_response(response.serialize());
     }
 
     conn->mark_processing_complete();
