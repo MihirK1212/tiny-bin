@@ -4,7 +4,7 @@
 #include <algorithm>
 
 
-#include "app/router.h"
+#include "app/app.h"
 #include "server.h"
 
 
@@ -40,7 +40,8 @@ int main(int argc, char* argv[])  {
         num_workers = std::max<int>(1, std::thread::hardware_concurrency());
     }
 
-    Server server(port, num_workers, build_router());
+    TinyBinApp app;
+    Server server(port, num_workers, app.get_router());
     server.start_workers();
     server.block_until_shutdown();
     server.stop_workers();

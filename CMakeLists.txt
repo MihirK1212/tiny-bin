@@ -20,6 +20,7 @@ add_compile_options(-Wall -Wextra -Wpedantic)
 find_package(Threads REQUIRED)
 
 find_package(PkgConfig REQUIRED)
+pkg_check_modules(LIBPQXX REQUIRED IMPORTED_TARGET libpqxx)
 
 include(FetchContent)
 FetchContent_Declare(
@@ -47,9 +48,12 @@ target_compile_options(server PRIVATE
 
 
 # ---- Server executable ----
-add_executable(tiny_bin_server src/cpp/server/main.cpp)
+add_executable(tiny_bin_server
+    src/cpp/server/main.cpp
+    src/cpp/server/app/db/connection.cpp
+)
 
-target_link_libraries(tiny_bin_server PRIVATE server cxxopts::cxxopts Threads::Threads)
+target_link_libraries(tiny_bin_server PRIVATE server cxxopts::cxxopts Threads::Threads PkgConfig::LIBPQXX)
 
 target_compile_options(tiny_bin_server PRIVATE
     $<$<CONFIG:Release>:-O3>
