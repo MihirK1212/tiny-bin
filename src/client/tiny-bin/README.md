@@ -18,5 +18,3 @@ npm run preview
 ```
 
 Both development and local preview proxy `/api` to `BACKEND_URL`. A future production static server must provide API proxying and SPA fallback for `/p/*`.
-
-Browser tests run through the isolated database/server harness documented in the root README.

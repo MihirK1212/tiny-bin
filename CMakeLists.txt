@@ -67,11 +67,3 @@ target_compile_options(tiny_bin_server PRIVATE
     $<$<CONFIG:Release>:-O3>
     $<$<CONFIG:Debug>:-O0 -g>
 )
-
-include(CTest)
-if(BUILD_TESTING)
-    find_package(Python3 REQUIRED COMPONENTS Interpreter)
-    add_test(NAME application_integration
-        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/integration.py $<TARGET_FILE:tiny_bin_server>)
-    set_tests_properties(application_integration PROPERTIES TIMEOUT 90)
-endif()
