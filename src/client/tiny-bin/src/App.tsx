@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react'
-import type { FormEvent } from 'react'
+import type { SubmitEvent } from 'react'
 import { ApiError, createPaste, getPaste } from './api'
 import type { Paste } from './api'
 import './App.css'
 
 const encoder = new TextEncoder()
-const maxContentBytes = 10240
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : 'Something went wrong. Please try again.'
@@ -15,15 +14,12 @@ function PasteForm({ onSave }: { onSave: (content: string) => Promise<void> }) {
   const [content, setContent] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const bytes = encoder.encode(content).length
-  const encodedBytes = encoder.encode(JSON.stringify({ content })).length
-  const validation = bytes > maxContentBytes ? 'Content must be at most 10,240 UTF-8 bytes.'
-    : encodedBytes > 16384 ? 'This text exceeds the encoded request limit. Please shorten it.'
-    : content.includes('\0') ? 'Content cannot contain null characters.' : ''
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
+  const isEmptyContent = encoder.encode(content).length === 0 || content.trim() === ''
+
+  async function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (busy || validation || !bytes) return
+    if (busy || isEmptyContent) return
     setBusy(true)
     setError('')
     try {
@@ -42,13 +38,10 @@ function PasteForm({ onSave }: { onSave: (content: string) => Promise<void> }) {
           <label htmlFor="content">Paste content</label>
           <textarea id="content" value={content} onChange={(event) => setContent(event.target.value)}
             rows={14} required spellCheck={false} aria-describedby="content-help" />
-          <small id="content-help" className={validation ? 'error' : ''}>
-            {validation || `${bytes.toLocaleString()} / 10,240 bytes`}
-          </small>
         </div>
         {error && <p className="error" role="alert">{error}</p>}
         <div className="actions">
-          <button type="submit" disabled={!bytes || !!validation}>
+          <button type="submit" disabled={isEmptyContent}>
             {busy ? 'Saving…' : 'Create paste'}
           </button>
         </div>

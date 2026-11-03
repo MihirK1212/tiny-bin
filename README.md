@@ -8,6 +8,10 @@ set -a && source .env && set +a
 
 # Launch C++ server
 ```
+cmake -S . -B build/ && cmake --build build/ && ./build/tiny_bin_server
+```
+
+```
 cmake -S . -B build/ && cmake --build build/ && ./build/tiny_bin_server -p 8000 -n 8
 ```
 
