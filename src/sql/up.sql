@@ -1,26 +1,12 @@
 BEGIN;
 
--- Create application schema
 CREATE SCHEMA tiny_bin;
 
--- Users table
-CREATE TABLE tiny_bin.users (
-    id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    username    TEXT NOT NULL UNIQUE,
-    email       TEXT NOT NULL UNIQUE,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE tiny_bin.pastes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    content TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT valid_content_length CHECK (octet_length(content) BETWEEN 1 AND 10240)
 );
-
--- Posts table
-CREATE TABLE tiny_bin.posts (
-    id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    user_id     BIGINT NOT NULL REFERENCES tiny_bin.users(id),
-    title       TEXT NOT NULL,
-    content     TEXT,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- Indexes
-CREATE INDEX idx_posts_user_id ON tiny_bin.posts(user_id);
 
 COMMIT;

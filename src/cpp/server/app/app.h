@@ -1,6 +1,8 @@
 #ifndef TINY_BIN_APP_H
 #define TINY_BIN_APP_H
 
+#include <string>
+
 #include "db/connection.h"
 #include "router.h"
 
@@ -12,9 +14,9 @@ class App {
 
 class TinyBinApp : public App {
     public:
-        TinyBinApp()
-            : db_connection(),
-              router(build_router(db_connection)) {}
+        TinyBinApp(const std::string& database_url, const std::string& public_base_url)
+            : db_connection(database_url),
+              router(build_router(db_connection, public_base_url)) {}
 
         const Router& get_router() const override {
             return router;

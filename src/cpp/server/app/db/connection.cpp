@@ -1,6 +1,6 @@
 #include "connection.h"
 
-DBConnection::DBConnection()
-    : cx{"postgresql://postgres:postgres@localhost:5432/testdb"} {}
+DBConnection::DBConnection(const std::string& database_url)
+    : cx{database_url} {}
 
 DBConnection::~DBConnection() = default;

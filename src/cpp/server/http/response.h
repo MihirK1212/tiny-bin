@@ -23,6 +23,17 @@ struct HTTPResponse {
         return resp;
     }
 
+    static HTTPResponse json(int status, std::string reason, std::string_view json_body) {
+        HTTPResponse resp;
+        resp.status_code = status;
+        resp.reason_phrase = std::move(reason);
+        resp.headers["Content-Type"] = "application/json; charset=utf-8";
+        resp.headers["Cache-Control"] = "no-store";
+        resp.headers["X-Content-Type-Options"] = "nosniff";
+        resp.body.assign(json_body.begin(), json_body.end());
+        return resp;
+    }
+
     std::vector<uint8_t> serialize() const {
         std::string head = "HTTP/1.1 " + std::to_string(status_code) + " " + reason_phrase + "\r\n";
 

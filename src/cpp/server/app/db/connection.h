@@ -6,7 +6,7 @@
 
 class DBConnection {
     public:
-        DBConnection();
+        explicit DBConnection(const std::string& database_url);
         ~DBConnection();
 
         pqxx::connection& get_connection() {

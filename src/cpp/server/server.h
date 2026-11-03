@@ -2,6 +2,7 @@
 #define SERVER_H
 
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "http/router.h"
@@ -9,7 +10,7 @@
 
 class Server {
     public:
-        Server(int port, int num_workers, Router router);
+        Server(const std::string& host, int port, int num_workers, Router router);
 
         void start_workers(); // start the workers
         void block_until_shutdown(); // block until SIGINT/SIGTERM
@@ -17,6 +18,7 @@ class Server {
         void join_workers(); // wait for all worker threads to finish
 
     private:
+        std::string host;
         int port;
         int num_workers;
         Router router;
