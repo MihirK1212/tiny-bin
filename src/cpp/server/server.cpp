@@ -8,19 +8,19 @@
 #include "server.h"
 
 
-Server::Server(int port, int num_workers, Router router)
-    : port(port), num_workers(num_workers), router(std::move(router)) {
-    if(port <= 0) {
-        throw std::invalid_argument("Port must be greater than 0");
-    }
-    if(num_workers <= 0) {
-        throw std::invalid_argument("Number of workers must be greater than 0");
-    }
+Server::Server(const std::string& host, int port, int num_workers, Router router)
+    : host(host), port(port), num_workers(num_workers), router(std::move(router)) {
+        if(port <= 0) {
+            throw std::invalid_argument("Port must be greater than 0");
+        }
+        if(num_workers <= 0) {
+            throw std::invalid_argument("Number of workers must be greater than 0");
+        }
 
     setup_signal_handlers();
 
     for(int i=0; i<this->num_workers; i++) {
-        this->workers.push_back(std::make_unique<Worker>(i, this->port, this->router)); 
+        this->workers.push_back(std::make_unique<Worker>(i, this->host, this->port, this->router));
     }
 }
 

@@ -23,13 +23,14 @@ class Router {
         HTTPResponse handle_request(const HTTPRequest& request) const {
             auto path_it = routes.find(request.path);
             if (path_it == routes.end()) {
-                return HTTPResponse::text(404, "Not Found", "not found\n");
+                return HTTPResponse::json(404, "Not Found",
+                    "{\"error\":{\"code\":\"NOT_FOUND\",\"message\":\"Route not found\"}}");
             }
 
-            const auto& method_map = path_it->second;
-            auto method_it = method_map.find(request.method);
-            if (method_it == method_map.end()) {
-                return HTTPResponse::text(405, "Method Not Allowed", "method not allowed\n");
+            auto method_it = path_it->second.find(request.method);
+            if (method_it == path_it->second.end()) {
+                return HTTPResponse::json(405, "Method Not Allowed",
+                    "{\"error\":{\"code\":\"METHOD_NOT_ALLOWED\",\"message\":\"Method not allowed\"}}");
             }
 
             return method_it->second(request);

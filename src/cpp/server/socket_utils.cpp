@@ -16,8 +16,9 @@
 #include <unistd.h>
 
 
-int create_socket_and_bind(uint16_t port)
+int create_socket_and_bind(const std::string& host, uint16_t port)
 {
+    sockaddr_in server_addr = get_socket_addr(host, port);
     int fd = get_new_socket_id();
     set_socket_options(fd);
     if (!set_nonblocking(fd)) {
@@ -26,9 +27,12 @@ int create_socket_and_bind(uint16_t port)
         throw std::system_error(error, std::generic_category(), "set_nonblocking");
     }
 
-    sockaddr_in server_addr = get_socket_addr(port);
-
-    bind_socket_to_addr(fd, server_addr);
+    try {
+        bind_socket_to_addr(fd, server_addr);
+    } catch (...) {
+        close(fd);
+        throw;
+    }
 
     return fd;
 }
@@ -77,7 +81,7 @@ bool set_nonblocking(int fd)
     return rv == 0;
 }
 
-sockaddr_in get_socket_addr(uint16_t port)
+sockaddr_in get_socket_addr(const std::string& host, uint16_t port)
 {
     /*
         sockaddr_in means "socket internet address"
@@ -93,7 +97,9 @@ sockaddr_in get_socket_addr(uint16_t port)
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
-    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    if (inet_pton(AF_INET, host.c_str(), &addr.sin_addr) != 1) {
+        throw std::invalid_argument("HOST must be an IPv4 address");
+    }
     return addr;
 }
 

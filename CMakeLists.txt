@@ -30,6 +30,14 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(cxxopts)
 
+FetchContent_Declare(
+    nlohmann_json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG v3.11.3
+    GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(nlohmann_json)
+
 # ---- Server library ----
 add_library(server
     src/cpp/server/socket_utils.cpp
@@ -53,9 +61,17 @@ add_executable(tiny_bin_server
     src/cpp/server/app/db/connection.cpp
 )
 
-target_link_libraries(tiny_bin_server PRIVATE server cxxopts::cxxopts Threads::Threads PkgConfig::LIBPQXX)
+target_link_libraries(tiny_bin_server PRIVATE server cxxopts::cxxopts Threads::Threads PkgConfig::LIBPQXX nlohmann_json::nlohmann_json)
 
 target_compile_options(tiny_bin_server PRIVATE
     $<$<CONFIG:Release>:-O3>
     $<$<CONFIG:Debug>:-O0 -g>
 )
+
+include(CTest)
+if(BUILD_TESTING)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    add_test(NAME application_integration
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/integration.py $<TARGET_FILE:tiny_bin_server>)
+    set_tests_properties(application_integration PROPERTIES TIMEOUT 90)
+endif()

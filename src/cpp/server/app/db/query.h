@@ -6,11 +6,13 @@
 
 #include "connection.h"
 
-inline pqxx::result execute_query(DBConnection& connection, const std::string& query) {
+template<typename... Params>
+inline pqxx::result execute_query(DBConnection& connection, const std::string& query, const Params&... params) {
     std::lock_guard<std::mutex> lock(connection.query_mutex());
     pqxx::connection& cx = connection.get_connection();
     pqxx::work tx{cx};
-    pqxx::result result = tx.exec(query);
+    tx.exec("SET LOCAL statement_timeout = '5s'");
+    pqxx::result result = tx.exec_params(query, params...);
     tx.commit();
     return result;
 }

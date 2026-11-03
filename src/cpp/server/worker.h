@@ -2,6 +2,7 @@
 #define WORKER_H
 
 #include <memory>
+#include <string>
 #include <thread>
 
 #include "event_loop.h"
@@ -9,7 +10,7 @@
 
 class Worker { 
     public: 
-        Worker(int id, int port, const Router& router);
+        Worker(int id, const std::string& host, int port, const Router& router);
         ~Worker();
 
         void start(); // spawns thread worker
@@ -18,6 +19,7 @@ class Worker {
 
     private: 
         int id;
+        std::string host;
         int port;
         const Router& router;
 
