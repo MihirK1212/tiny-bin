@@ -1,3 +1,4 @@
+#include <cstdint>
 #include <cxxopts.hpp>
 #include <iostream>
 
@@ -25,7 +26,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    TinyBinApp app(config.database_url, config.public_base_url);
+    TinyBinApp app(config.database_url(), config.public_base_url);
     
     Server server(config.host, config.port, config.num_workers, app.get_router());
     server.start_workers();

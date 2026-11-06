@@ -1,0 +1,63 @@
+networks:
+  tiny-bin-network:
+    name: tiny-bin-network 
+
+services:
+  tiny-bin-server:
+    container_name: tiny-bin-server
+    env_file:
+      - .env
+    build: 
+      context: .
+      dockerfile: ./src/cpp/server/Dockerfile
+    networks:
+      - tiny-bin-network
+    depends_on:
+      pg-container:
+        condition: service_healthy
+
+  tiny-bin-client:
+    container_name: tiny-bin-client
+    build: 
+      context: .
+      dockerfile: ./src/client/tiny-bin/Dockerfile
+    networks:
+      - tiny-bin-network
+
+  tiny-bin-proxy:
+    container_name: tiny-bin-proxy
+    build: 
+      context: .
+      dockerfile: ./src/proxy/Dockerfile
+    networks:
+      - tiny-bin-network
+    ports:
+      - "5173:80"
+    depends_on:
+      tiny-bin-server:
+        condition: service_started
+      tiny-bin-client:
+        condition: service_started
+
+  pg-container:
+    image: postgres:17 
+    container_name: pg-container
+    environment:
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=${DB_NAME}
+    networks:
+      - tiny-bin-network
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./src/sql/up.sql:/docker-entrypoint-initdb.d/01-up.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  postgres_data:
+    
+  
