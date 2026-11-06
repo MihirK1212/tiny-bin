@@ -14,12 +14,37 @@ struct ServerConfig {
     std::string host = env_value("HOST", "127.0.0.1");
     int port = std::stoi(env_value("PORT", "8000"));
     int num_workers = std::stoi(env_value("NUM_WORKERS", "1"));
-    std::string database_url = env_value("DATABASE_URL");
+    std::string db_user = env_value("DB_USER");
+    std::string db_password = env_value("DB_PASSWORD");
+    std::string db_host = env_value("DB_HOST");
+    std::string db_port = env_value("DB_PORT", "5432");
+    std::string db_name = env_value("DB_NAME");
     std::string public_base_url = env_value("PUBLIC_BASE_URL", "http://localhost:5173");
 
+    std::string database_url() const {
+        return "postgresql://" + db_user + ":" + db_password + "@" + db_host + ":" + db_port + "/" +
+               db_name + "?connect_timeout=5";
+    }
+
     std::string validate() const {
-        if (database_url.empty()) {
-            return "DATABASE_URL is required";
+        if (db_user.empty()) {
+            return "DB_USER is required";
+        }
+        if (db_password.empty()) {
+            return "DB_PASSWORD is required";
+        }
+        if (db_host.empty()) {
+            return "DB_HOST is required";
+        }
+        if (db_name.empty()) {
+            return "DB_NAME is required";
+        }
+        if (db_port.empty()) {
+            return "DB_PORT is required";
+        }
+        const int db_port_num = std::stoi(db_port);
+        if (db_port_num < 1 || db_port_num > 65535) {
+            return "DB_PORT must be between 1 and 65535";
         }
         if (port < 1 || port > 65535) {
             return "PORT must be between 1 and 65535";
