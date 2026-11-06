@@ -50,10 +50,10 @@ inline bool read_content(const HTTPRequest& request, std::string& content, HTTPR
     return true;
 }
 
-inline Json get_paste_json(const pqxx::row& row, const std::string& base_url) {
-    const std::string id = row["id"].as<std::string>();
-    return {{"id", id}, {"content", row["content"].as<std::string>()},
-            {"created_at", row["created_at"].as<std::string>()}, {"url", base_url + "/p/" + id}};
+inline Json get_paste_json(const pqxx::row& row) {
+    return {{"id", row["id"].as<std::string>()},
+            {"content", row["content"].as<std::string>()},
+            {"created_at", row["created_at"].as<std::string>()}};
 }
 
 inline std::string get_query_value(const std::string& query, const std::string& key) {
@@ -69,36 +69,34 @@ inline std::string get_query_value(const std::string& query, const std::string& 
     return {};
 }
 
-inline HTTPResponse handle_get_paste(const HTTPRequest& request, DBConnection& db, const std::string& public_base_url) 
+inline HTTPResponse handle_get_paste(const HTTPRequest& request, DBConnection& db) 
 {
     std::string id = get_query_value(request.query, "id");
     try {
         pqxx::result result = get_paste(db, id);
         if (result.empty()) return api_error(404, "Not Found", "NOT_FOUND", "Paste not found");
-        return json_response(200, "OK", get_paste_json(result[0], public_base_url));
+        return json_response(200, "OK", get_paste_json(result[0]));
     } catch (const std::exception&) {
         std::cerr << "Paste database operation failed\n";
         return api_error(503, "Service Unavailable", "DATABASE_UNAVAILABLE", "Database unavailable. Please try again.");
     }
 }
 
-inline HTTPResponse handle_create_paste(const HTTPRequest& request, DBConnection& db, const std::string& public_base_url) 
+inline HTTPResponse handle_create_paste(const HTTPRequest& request, DBConnection& db) 
 {
     std::string content;
     HTTPResponse error;
     if (!read_content(request, content, error)) return error;
     try {
         pqxx::result result = create_paste(db, content);
-        auto response = json_response(201, "Created", get_paste_json(result[0], public_base_url));
-        response.headers["Location"] = public_base_url + "/p/" + result[0]["id"].as<std::string>();
-        return response;
+        return json_response(201, "Created", get_paste_json(result[0]));
     } catch (const std::exception&) {
         std::cerr << "Paste database operation failed\n";
         return api_error(503, "Service Unavailable", "DATABASE_UNAVAILABLE", "Database unavailable. Please try again.");
     }
 }
 
-inline Router build_router(DBConnection& db, const std::string& public_base_url) {
+inline Router build_router(DBConnection& db) {
     Router router;
     router.add_route(HTTPMethod::GET, "/healthz", [](const HTTPRequest&) {
         return HTTPResponse::text(200, "OK", "ok\n");
@@ -111,11 +109,11 @@ inline Router build_router(DBConnection& db, const std::string& public_base_url)
             return api_error(503, "Service Unavailable", "NOT_READY", "Database or paste schema unavailable");
         }
     });
-    router.add_route(HTTPMethod::GET, "/api/v1/pastes", [&db, public_base_url](const HTTPRequest& request) {
-        return handle_get_paste(request, db, public_base_url);
+    router.add_route(HTTPMethod::GET, "/api/v1/pastes", [&db](const HTTPRequest& request) {
+        return handle_get_paste(request, db);
     });
-    router.add_route(HTTPMethod::POST, "/api/v1/pastes", [&db, public_base_url](const HTTPRequest& request) {
-        return handle_create_paste(request, db, public_base_url);
+    router.add_route(HTTPMethod::POST, "/api/v1/pastes", [&db](const HTTPRequest& request) {
+        return handle_create_paste(request, db);
     });
     return router;
 }

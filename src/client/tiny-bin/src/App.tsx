@@ -6,6 +6,14 @@ import './App.css'
 
 const encoder = new TextEncoder()
 
+function pastePath(id: string) {
+  return `/p/${id}`
+}
+
+function pasteShareUrl(id: string) {
+  return `${window.location.origin}${pastePath(id)}`
+}
+
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : 'Something went wrong. Please try again.'
 }
@@ -69,7 +77,7 @@ function PastePage({ id }: { id: string }) {
   async function copyLink() {
     if (!paste) return
     try {
-      await navigator.clipboard.writeText(paste.url)
+      await navigator.clipboard.writeText(pasteShareUrl(paste.id))
       setNotice('Link copied.')
     } catch {
       setNotice('Select the link above to copy it manually.')
@@ -86,7 +94,7 @@ function PastePage({ id }: { id: string }) {
       <div className="field share">
         <label htmlFor="share-link">Share link</label>
         <div className="share-row">
-          <input id="share-link" readOnly value={paste.url} onFocus={(event) => event.target.select()} />
+          <input id="share-link" readOnly value={pasteShareUrl(paste.id)} onFocus={(event) => event.target.select()} />
           <button type="button" className="secondary" onClick={copyLink}>Copy link</button>
         </div>
       </div>
@@ -126,7 +134,7 @@ function App() {
             <p className="intro">Share plain text with a link. Anyone with the link can read it.</p>
             <PasteForm onSave={async (content) => {
               const paste = await createPaste(content)
-              navigate(`/p/${paste.id}`)
+              navigate(pastePath(paste.id))
             }} />
           </section>
         ) : pasteRoute ? (

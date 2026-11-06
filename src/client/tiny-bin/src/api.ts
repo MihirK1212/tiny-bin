@@ -2,7 +2,6 @@ export interface Paste {
   id: string
   content: string
   created_at: string
-  url: string
 }
 
 export class ApiError extends Error {

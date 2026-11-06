@@ -14,9 +14,9 @@ class App {
 
 class TinyBinApp : public App {
     public:
-        TinyBinApp(const std::string& database_url, const std::string& public_base_url)
+        TinyBinApp(const std::string& database_url)
             : db_connection(database_url),
-              router(build_router(db_connection, public_base_url)) {}
+              router(build_router(db_connection)) {}
 
         const Router& get_router() const override {
             return router;

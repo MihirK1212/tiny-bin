@@ -19,7 +19,6 @@ struct ServerConfig {
     std::string db_host = env_value("DB_HOST");
     std::string db_port = env_value("DB_PORT", "5432");
     std::string db_name = env_value("DB_NAME");
-    std::string public_base_url = env_value("PUBLIC_BASE_URL", "http://localhost:5173");
 
     std::string database_url() const {
         return "postgresql://" + db_user + ":" + db_password + "@" + db_host + ":" + db_port + "/" +
@@ -55,9 +54,6 @@ struct ServerConfig {
         in_addr addr{};
         if (inet_pton(AF_INET, host.c_str(), &addr) != 1) {
             return "HOST must be an IPv4 address";
-        }
-        if (public_base_url.rfind("http://", 0) != 0 && public_base_url.rfind("https://", 0) != 0) {
-            return "PUBLIC_BASE_URL must start with http:// or https://";
         }
         return "";
     }
