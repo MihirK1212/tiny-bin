@@ -137,7 +137,7 @@ docker network create tiny-bin-network
 - We bind mount the  src/sql/up.sql script into the initdb entry point so that the schemas get set up when the container starts running
 
 ```
-docker run --name pg-container \
+docker run --name postgres-service \
   --network tiny-bin-network \
   -e POSTGRES_USER=tinybin \
   -e POSTGRES_PASSWORD=tinybin_password \
@@ -209,6 +209,19 @@ docker run --name tiny-bin-proxy \
  
 - only prerequisite is that a `.env` file must be created at the root
 - it should have all the env vars required by the C++ server (see `env.example.server`)
+
+eg:-
+
+```.env
+HOST=0.0.0.0
+PORT=8000
+NUM_WORKERS=1
+DB_USER=tinybin
+DB_PASSWORD=tinybin_password
+DB_HOST=postgres-service
+DB_PORT=5432
+DB_NAME=tinybin
+```
 
 - the postgres container borrows the env vars from this and maps it to the env vars it requires
 - eg:- POSTGRES_USER=${DB_USER}

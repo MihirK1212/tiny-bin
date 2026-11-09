@@ -13,7 +13,7 @@ services:
     networks:
       - tiny-bin-network
     depends_on:
-      pg-container:
+      postgres-service:
         condition: service_healthy
 
   tiny-bin-client:
@@ -24,8 +24,8 @@ services:
     networks:
       - tiny-bin-network
 
-  tiny-bin-proxy:
-    container_name: tiny-bin-proxy
+  tiny-bin-gateway-proxy:
+    container_name: tiny-bin-gateway-proxy
     build: 
       context: .
       dockerfile: ./src/proxy/Dockerfile
@@ -39,9 +39,9 @@ services:
       tiny-bin-client:
         condition: service_started
 
-  pg-container:
+  postgres-service:
     image: postgres:17 
-    container_name: pg-container
+    container_name: postgres-service
     environment:
       - POSTGRES_USER=${DB_USER}
       - POSTGRES_PASSWORD=${DB_PASSWORD}
